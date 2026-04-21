@@ -9,7 +9,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base
 
-TEST_DB_URL = "mysql+aiomysql://root:Investarget%402017@39.107.14.53:3306/fa_agent_test"
+TEST_DB_URL = os.environ.get(
+    "TEST_DB_URL",
+    "mysql+aiomysql://root:Investarget%402017@39.107.14.53:3306/fa_agent_test",
+)
 
 @pytest_asyncio.fixture(loop_scope="session", scope="session")
 async def db_engine():
