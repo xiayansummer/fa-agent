@@ -35,13 +35,21 @@ services:
   celery_worker:
     build: ./backend
     env_file: .env
-    depends_on: [mysql, redis]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
     command: celery -A worker.celery_app worker -Q default,content -l info
 
   celery_beat:
     build: ./backend
     env_file: .env
-    depends_on: [mysql, redis]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
     command: celery -A worker.celery_app beat -l info
 
 volumes:
