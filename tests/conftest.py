@@ -30,3 +30,15 @@ async def db_session(db_engine):
     async with session_factory() as session:
         yield session
         await session.rollback()
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def override_db(db_session):
+    from main import app
+    from database import get_db
+
+    async def _override():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override
+    yield
+    app.dependency_overrides.clear()
