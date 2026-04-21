@@ -1,5 +1,8 @@
+import logging
 import httpx
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 WECHAT_CODE2SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session"
 
@@ -14,5 +17,6 @@ async def exchange_code_for_openid(code: str) -> str:
         })
     data = resp.json()
     if "errcode" in data and data["errcode"] != 0:
-        raise ValueError(f"WeChat API error: {data.get('errmsg')}")
+        logger.warning("WeChat jscode2session failed: errcode=%s errmsg=%s", data.get("errcode"), data.get("errmsg"))
+        raise ValueError("WeChat authentication failed")
     return data["openid"]

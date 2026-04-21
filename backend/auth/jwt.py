@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -10,7 +10,7 @@ def create_token(ir_id: int, role: str = "ir") -> str:
     payload = {
         "ir_id": ir_id,
         "role": role,
-        "exp": datetime.utcnow() + timedelta(days=settings.jwt_expire_days),
+        "exp": datetime.now(timezone.utc) + timedelta(days=settings.jwt_expire_days),
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
