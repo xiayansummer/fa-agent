@@ -1,0 +1,19 @@
+你正在为 {ir_name} 起草一份发给 {investor_name}（{agency}，{position}）的会议纪要。
+
+会议信息：
+- 日期：{meeting_date}
+- 时长：{duration}
+- 形式：{meeting_type}
+
+投资人偏好（请结合以下偏好调整纪要风格和侧重点）：
+{investor_profile}
+
+要求：
+1. 开头称呼投资人姓名，语气专业而有温度
+2. 结构清晰：会议背景 → 讨论要点 → 下一步行动
+3. 结合投资人偏好，突出其最关注的内容
+4. 结尾留下期待后续沟通的语气
+5. 控制在 400 字以内
+
+会议记录原文：
+{meeting_transcript}
