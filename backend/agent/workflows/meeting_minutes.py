@@ -1,4 +1,5 @@
 from __future__ import annotations
+import httpx
 from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
@@ -32,9 +33,9 @@ async def transcribe_node(state: AgentState) -> dict:
         return {"skills_called": []}
     if not state.get("audio_url"):
         return {"transcript": "（无转录内容）", "skills_called": []}
-    import httpx
     async with httpx.AsyncClient() as client:
         resp = await client.get(state["audio_url"])
+        resp.raise_for_status()
         audio_bytes = resp.content
     text = await skill_registry.call("ASR.音频转文字", audio_bytes=audio_bytes)
     return {"transcript": text, "skills_called": ["ASR.音频转文字"]}
@@ -76,7 +77,7 @@ async def save_node(state: AgentState) -> dict:
                 ir_id=state["ir_id"],
                 type="meeting_minutes",
                 content=final_content,
-                status="approved" if state.get("ir_action") == "approved" else "draft",
+                status="approved" if state.get("ir_action") in ("approved", "modified") else "draft",
             ))
         db.add(AgentTrace(
             thread_id=state["thread_id"],
