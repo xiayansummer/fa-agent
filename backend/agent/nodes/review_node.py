@@ -1,7 +1,8 @@
 from langgraph.types import interrupt
+from agent.state import AgentState
 
 
-def review_node(state: dict) -> dict:
+def review_node(state: AgentState) -> dict:
     ir_decision = interrupt({
         "draft": state.get("draft"),
         "task_type": state.get("task_type"),
