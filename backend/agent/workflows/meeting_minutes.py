@@ -30,7 +30,7 @@ async def fetch_profiles_node(state: AgentState) -> dict:
 async def transcribe_node(state: AgentState) -> dict:
     """Use transcript directly if provided; otherwise call ASR skill."""
     if state.get("transcript"):
-        return {"skills_called": []}
+        return {}
     if not state.get("audio_url"):
         return {"transcript": "（无转录内容）", "skills_called": []}
     async with httpx.AsyncClient() as client:
@@ -58,27 +58,26 @@ async def generate_node(state: AgentState) -> dict:
 
 
 async def save_node(state: AgentState) -> dict:
-    if state.get("ir_action") == "rejected":
-        return {}
     final_content = state.get("final") or ""
     investor_ids = state.get("investor_ids") or []
     async with AsyncSessionLocal() as db:
-        for inv_id in investor_ids:
-            db.add(InteractionLog(
-                investor_id=inv_id,
-                ir_id=state["ir_id"],
-                type="meeting",
-                summary=final_content[:500],
-                raw_content=state.get("transcript") or "",
-                agent_generated=True,
-            ))
-            db.add(OutreachRecord(
-                investor_id=inv_id,
-                ir_id=state["ir_id"],
-                type="meeting_minutes",
-                content=final_content,
-                status="approved" if state.get("ir_action") in ("approved", "modified") else "draft",
-            ))
+        if state.get("ir_action") != "rejected":
+            for inv_id in investor_ids:
+                db.add(InteractionLog(
+                    investor_id=inv_id,
+                    ir_id=state["ir_id"],
+                    type="meeting",
+                    summary=final_content[:500],
+                    raw_content=state.get("transcript") or "",
+                    agent_generated=True,
+                ))
+                db.add(OutreachRecord(
+                    investor_id=inv_id,
+                    ir_id=state["ir_id"],
+                    type="meeting_minutes",
+                    content=final_content,
+                    status="approved" if state.get("ir_action") in ("approved", "modified") else "draft",
+                ))
         db.add(AgentTrace(
             thread_id=state["thread_id"],
             ir_id=state["ir_id"],
