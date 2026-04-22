@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
+from collections.abc import AsyncGenerator
 from redis_client import get_redis
-from config import settings
 
 CHANNEL_PREFIX = "agent:events:"
 
@@ -11,9 +11,10 @@ async def publish(thread_id: str, event: dict) -> None:
     await redis.publish(f"{CHANNEL_PREFIX}{thread_id}", json.dumps(event))
 
 
-async def subscribe(thread_id: str):
+async def subscribe(thread_id: str) -> AsyncGenerator[dict, None]:
     """Async generator yielding event dicts. Uses a dedicated connection for pub/sub."""
     import redis.asyncio as aioredis
+    from config import settings
 
     conn = aioredis.from_url(settings.redis_url, decode_responses=True)
     pubsub = conn.pubsub()

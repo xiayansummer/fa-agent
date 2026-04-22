@@ -1,3 +1,5 @@
+import pytest
+import json
 from agent.state import AgentState
 
 def test_agent_state_shape():
@@ -28,9 +30,6 @@ def test_agent_state_shape():
     assert state["skills_called"] == []
 
 
-import pytest
-import json
-
 @pytest.mark.asyncio
 async def test_events_publish_subscribe(mocker):
     from agent.events import publish, subscribe
@@ -38,7 +37,7 @@ async def test_events_publish_subscribe(mocker):
     # Mock Redis connection
     mock_redis = mocker.AsyncMock()
     mock_redis.publish = mocker.AsyncMock()
-    mocker.patch("agent.events.get_redis", return_value=mock_redis)
+    mocker.patch("agent.events.get_redis", new=mocker.AsyncMock(return_value=mock_redis))
 
     await publish("thread-1", {"type": "node_done", "node": "transcribe"})
     mock_redis.publish.assert_called_once_with(
