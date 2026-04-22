@@ -18,8 +18,7 @@ class Settings(BaseSettings):
 
     tavily_api_key: str
 
-    qmingpian_api_url: str
-    qmingpian_token: str
+    qmingpian_token: str  # open_id for Investarget/企名片 API
 
     tencent_secret_id: str
     tencent_secret_key: str
