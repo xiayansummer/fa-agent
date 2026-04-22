@@ -58,6 +58,11 @@ async def test_review_endpoint(override_db, mocker, auth_headers):
     assert mock_resume.called
 
 
+def test_celery_app_importable():
+    from worker import celery_app
+    assert celery_app.main == "fa_agent"
+
+
 @pytest.mark.asyncio
 async def test_review_thread_not_found(override_db, mocker, auth_headers):
     from main import app
