@@ -42,11 +42,15 @@ async def transcribe_node(state: AgentState) -> dict:
 
 
 async def generate_node(state: AgentState) -> dict:
+    profiles = state.get("investor_profiles") or ""
+    profiles_escaped = profiles.replace("{", "{{").replace("}", "}}")
+    transcript = state.get("transcript") or ""
+    transcript_escaped = transcript.replace("{", "{{").replace("}", "}}")
     context = prompt_registry.get(
         "meeting_minutes.generate",
         variables={
-            "investor_profiles": state.get("investor_profiles") or "",
-            "transcript": state.get("transcript") or "",
+            "investor_profiles": profiles_escaped,
+            "transcript": transcript_escaped,
         },
     )
     draft = await skill_registry.call("Claude.生成内容", context=context)
