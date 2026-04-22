@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base
+import models  # noqa: F401 — ensures all models register with Base.metadata
 
 TEST_DB_URL = os.environ.get(
     "TEST_DB_URL",

@@ -42,5 +42,6 @@ class PromptRegistry:
         meta_file = prompt_dir / f"{version}.meta.json"
         return json.loads(meta_file.read_text())
 
-# 全局单例
-registry = PromptRegistry(base_dir="prompts")
+# 全局单例 — use absolute path relative to this file so it works regardless of cwd
+_default_prompts_dir = Path(__file__).parent.parent / "prompts"
+registry = PromptRegistry(base_dir=str(_default_prompts_dir))
