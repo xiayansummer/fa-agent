@@ -1,6 +1,7 @@
 import pytest
 import json
 from langgraph.types import Command
+from sqlalchemy import select as sa_select
 
 
 @pytest.fixture
@@ -87,3 +88,11 @@ async def test_daily_push_approve_and_save(base_state, db_session, mocker):
 
     final = daily_push_graph.get_state(config).values
     assert final["ir_action"] == "approved"
+
+    from models.agent_traces import AgentTrace
+    result = await db_session.execute(
+        sa_select(AgentTrace).where(AgentTrace.thread_id == "dp-test-002")
+    )
+    trace = result.scalar_one_or_none()
+    assert trace is not None
+    assert trace.agent_name == "daily_push"

@@ -1,8 +1,8 @@
 from __future__ import annotations
 import json
+import logging
 from datetime import date, timedelta
-from sqlalchemy import select, or_
-from sqlalchemy.sql import func as sqlfunc
+from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
@@ -13,6 +13,8 @@ from harness.prompt_registry import registry as prompt_registry
 from models.investors import Investor
 from models.outreach_records import OutreachRecord
 from models.agent_traces import AgentTrace
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_events_node(state: AgentState) -> dict:
@@ -82,6 +84,7 @@ async def save_node(state: AgentState) -> dict:
             try:
                 messages = json.loads(final_content)
             except (json.JSONDecodeError, TypeError):
+                logger.warning("daily_push save_node: failed to parse final as JSON, falling back to raw content. thread_id=%s", state.get("thread_id"))
                 messages = [
                     {"investor_id": e["investor_id"], "message": final_content}
                     for e in (state.get("events") or [])
