@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 7
 
-    claude_api_key: str
-    claude_model: str = "claude-sonnet-4-6"
+    ai_api_key: str
+    ai_base_url: str = "https://api.anthropic.com/v1"
+    ai_model: str = "claude-sonnet-4-6"
 
     tavily_api_key: str
 
