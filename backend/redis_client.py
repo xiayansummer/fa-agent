@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import redis.asyncio as redis
 from config import settings

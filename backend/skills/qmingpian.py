@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 import httpx
 from harness.skill_registry import skill, skill_registry
