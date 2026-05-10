@@ -4,6 +4,7 @@ from api.investors import router as investors_router
 from api.calendar import router as calendar_router
 from api.admin import router as admin_router
 from api.agent import router as agent_router
+from api.upload import router as upload_router
 
 # Load all Skills to register them into skill_registry
 import skills.claude_skill  # noqa: F401
@@ -22,6 +23,7 @@ app.include_router(investors_router, prefix="/api/investors", tags=["investors"]
 app.include_router(calendar_router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
+app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
 
 @app.get("/health")
 async def health():

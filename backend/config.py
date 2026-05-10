@@ -30,4 +30,10 @@ class Settings(BaseSettings):
 
     internal_api_base: str = "http://127.0.0.1:8000"
 
+    qiniu_ak: str = ""
+    qiniu_sk: str = ""
+    qiniu_bucket: str = "file"
+    qiniu_region: str = "z0"  # 华东-浙江
+    qiniu_domain: str = ""    # bound CDN domain for downloads, e.g. https://files.example.com
+
 settings = Settings()

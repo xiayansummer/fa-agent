@@ -1,15 +1,17 @@
 from __future__ import annotations
 import uuid
 from typing import Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
-from auth.jwt import get_current_ir
+from auth.jwt import decode_token, get_current_ir
 from agent.runner import run, resume
 from agent.events import subscribe
 from agent.state import AgentState, TaskType, IrAction
 from redis_client import get_redis
 
 router = APIRouter()
+
+THREAD_OWNER_TTL = 3600  # max workflow + IR-review pause window
 
 
 class RunRequest(BaseModel):
@@ -61,12 +63,40 @@ async def start_workflow(
         "skills_called": [],
         "error": None,
     }
+    redis = await get_redis()
+    await redis.setex(f"agent:thread:{thread_id}:owner", THREAD_OWNER_TTL, str(current_ir["ir_id"]))
     background_tasks.add_task(run, request.task_type, state, thread_id)
     return {"thread_id": thread_id}
 
 
 @router.websocket("/ws/{thread_id}")
-async def agent_websocket(websocket: WebSocket, thread_id: str):
+async def agent_websocket(
+    websocket: WebSocket,
+    thread_id: str,
+    token: Optional[str] = Query(None, description="JWT (alternative to Authorization header)"),
+):
+    # Mini-program WS may not be able to set Authorization header reliably,
+    # so we accept token via header OR ?token= query string.
+    auth_header = websocket.headers.get("authorization", "")
+    jwt_token = auth_header[7:] if auth_header.lower().startswith("bearer ") else token
+    if not jwt_token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="missing token")
+        return
+    try:
+        payload = decode_token(jwt_token)
+    except HTTPException:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid token")
+        return
+
+    redis = await get_redis()
+    owner = await redis.get(f"agent:thread:{thread_id}:owner")
+    if not owner:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="thread not found")
+        return
+    if str(owner) != str(payload["ir_id"]):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="forbidden")
+        return
+
     await websocket.accept()
     try:
         async for event in subscribe(thread_id):
@@ -87,6 +117,9 @@ async def submit_review(
     current_ir: dict = Depends(get_current_ir),
 ):
     redis = await get_redis()
+    owner = await redis.get(f"agent:thread:{thread_id}:owner")
+    if owner and str(owner) != str(current_ir["ir_id"]):
+        raise HTTPException(status_code=403, detail="forbidden")
     task_type = await redis.get(f"agent:thread:{thread_id}:type")
     if not task_type:
         raise HTTPException(status_code=404, detail="Thread not found or already completed")
