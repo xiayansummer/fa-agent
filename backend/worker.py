@@ -2,6 +2,8 @@ from celery import Celery
 from celery.schedules import crontab
 from config import settings
 
+_API_BASE = settings.internal_api_base
+
 celery_app = Celery(
     "fa_agent",
     broker=settings.redis_url,
@@ -34,7 +36,7 @@ def trigger_daily_push(self):
 
     try:
         resp = httpx.post(
-            "http://fastapi:8000/api/agent/run",
+            f"{_API_BASE}/api/agent/run",
             json={
                 "task_type": "daily_push",
                 "target_date": date.today().isoformat(),
@@ -56,7 +58,7 @@ def trigger_milestone_outreach(self):
     today = date.today()
     try:
         resp = httpx.get(
-            "http://fastapi:8000/api/calendar/daily",
+            f"{_API_BASE}/api/calendar/daily",
             params={"date": today.isoformat()},
             headers={"X-Celery-Internal": "1"},
             timeout=10,
@@ -66,7 +68,7 @@ def trigger_milestone_outreach(self):
         for event in events:
             if event.get("type") in ("birthday", "join_agency"):
                 httpx.post(
-                    "http://fastapi:8000/api/agent/run",
+                    f"{_API_BASE}/api/agent/run",
                     json={
                         "task_type": "milestone_outreach",
                         "investor_id": event["investor_id"],

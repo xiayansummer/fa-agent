@@ -28,4 +28,6 @@ class Settings(BaseSettings):
     tencent_meeting_secret_id: str
     tencent_meeting_secret_key: str
 
+    internal_api_base: str = "http://127.0.0.1:8000"
+
 settings = Settings()
