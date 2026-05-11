@@ -14,20 +14,50 @@
 
 ### 非目标（MVP 不做）
 - 推送通知（订阅消息/企业微信）—— 阶段 2 再加
-- WebSocket 重连后的事件回放 —— 完成后只能从 outreach_records 历史看
 - 多公司/多团队隔离 —— 单租户假设
 - IR 自助导入投资人 —— 数据由后台导入或同步
 - 投资人匹配/反馈归因/交易推进 Agent —— 阶段 2-3
 - 现场录音 —— MVP 只支持文件上传
+- **聊天气泡漫游** —— 仅本机本地存储，换手机/清缓存会丢失气泡历史；草稿和工作流结果在数据库有持久化，不影响业务
 
 ## 2. 用户角色
 
 | 角色 | 权限 | 来源 |
 |---|---|---|
-| **IR**（投资人关系经理） | 使用所有 Agent 工作流、查看自己的草稿和投资人 | 管理员后台预先创建并绑 openid |
-| **Admin** | IR 全部权限 + 管理 IR 用户、绑 openid | 数据库 `role='admin'` |
+| **IR**（投资人关系经理） | 使用所有 Agent 工作流、查看自己的草稿和投资人 | 管理员后台录入**姓名 + 手机号**（不是 openid） |
+| **Admin** | IR 全部权限 + 管理 IR 用户 | 数据库 `role='admin'` |
 
-> 首次登录用 `wx.login()`，未在 `ir_users` 表注册的 openid 无法登录。
+### 登录绑定流程（修正）
+
+`openid` 由微信在用户首次访问小程序时生成，admin **无法预先获知**。绑定走"手机号反向匹配"：
+
+```
+admin 后台 ──→ 录入 IR 姓名 + 手机号 ──→ ir_users (openid=NULL)
+                                                  ▲
+                                                  │ (回写)
+                                                  │
+小程序首次启动:                                    │
+  wx.login() ──→ code ──→ POST /api/auth/login ─→ 后端拿 openid
+       │                          │
+       │                  if openid 已绑过用户:
+       │                     直接返回 JWT
+       │                  else:
+       │                     返回 { need_phone_binding: true }
+       │
+       ▼
+  [显示"请绑定手机号"按钮]
+       │
+       ▼
+  wx.getPhoneNumber() ──→ encryptedData ──→ POST /api/auth/bind_phone
+                                                  │
+                                          后端解密拿手机号 ──→ 查 ir_users
+                                                  │
+                                              if matched: 写 openid，返回 JWT
+                                              else:       返回 403 "账号未开通"
+```
+
+**前提**：必须使用**企业认证小程序**（个人主体不开放 `wx.getPhoneNumber`）。
+申请前请确认公司有微信认证企业主体，没有的话 MVP 阻塞 ~5 工作日。
 
 ## 3. 整体架构
 
@@ -111,13 +141,44 @@
 
 ## 5. 页面详细设计
 
-### 5.1 启动页（仅首次）
+### 5.1 启动页 + 绑定流程
 
+#### 启动页（仅首次）
 - 全屏紫色渐变 + "FA" logo
 - 标题：「你的 IR 工作台 / 由 4 个 Agent 协同完成」
 - 副标题：「Orchestrator 每日为你规划日程，名单/内容/触达 Agent 主动推送草稿，你只需在对话中一键审核」
 - 按钮：`进入工作台 →`
-- 行为：点击 → 调用 `wx.login()` → POST `/api/auth/login` → 存 JWT 到 storage（key: `mro:jwt`）→ 设置 `mro:onboarded=true` → 跳到日程 Tab
+
+#### 行为流程
+1. 点击 `进入工作台 →`
+2. `wx.login()` 拿 code → POST `/api/auth/login { code }`
+3. 分两种情况：
+   - **已绑定** → 后端返回 `{ token, ir_id, name, role }` → 存 JWT → 跳日程 Tab
+   - **未绑定** → 后端返回 `{ need_phone_binding: true, login_session: "xxx" }` → **进入手机号绑定页**
+
+#### 手机号绑定页
+```
+┌────────────────────────────────────────┐
+│   首次使用，请绑定手机号                  │
+│                                        │
+│   你的手机号需要和管理员录入的          │
+│   一致才能进入系统。                    │
+│                                        │
+│   ┌──────────────────────────────┐    │
+│   │  📱 微信授权获取手机号          │    │  ← <button open-type="getPhoneNumber">
+│   └──────────────────────────────┘    │
+│                                        │
+│   找不到匹配的账号？                    │
+│   联系管理员开通：admin@xxx.com         │
+└────────────────────────────────────────┘
+```
+
+- 按钮触发 `wx.getPhoneNumber` → 拿到 `encryptedData` + `iv`
+- POST `/api/auth/bind_phone { login_session, encryptedData, iv }`
+- 后端用 `wx.business.getuserphonenumber` API 解密 → 查 `ir_users.phone` 匹配
+  - 匹配 → 写 `openid`、返回 JWT → 跳日程 Tab
+  - 不匹配 → 返回 403 + 提示文案
+- 设置 `mro:onboarded=true`
 
 ### 5.2 日程 Tab
 
@@ -126,7 +187,9 @@
 - 中部：月历（小程序原生 `<picker>` 或自绘）
   - 每个日期格子下方显示彩色圆点：`● 跟进 ● 会议 ● 里程碑 ● 推送`（4 色对应 `event.type`）
 - 下方：当日事件预览列表（最多 3 条，更多展开）
-- 数据：`GET /api/calendar/daily?target_date=YYYY-MM-DD`（首屏拉今天 + 当月所有日的事件聚合）
+- 数据：进入页面调 `GET /api/calendar/month?month=YYYY-MM`（**新增接口**），单次返回当月所有日聚合的事件 type 数组（用于点标签）+ 今日预览
+- 切换月份重新调用，前端缓存当前月数据
+- 点某天进入日视图时，再调 `GET /api/calendar/daily?target_date=YYYY-MM-DD` 拉详细事件
 
 #### 日视图（点某天进入）
 - 顶部：「2026-04-09 · 周四」+ 「问 Agent」 按钮
@@ -174,22 +237,32 @@
 ```
 
 #### 进入时
-- 拉对话历史：本地 storage 存 `chat:history:{ir_id}`（有限：最多 50 条，超出滚动加载）
+- 拉对话历史：本地 storage 存 `chat:history:{ir_id}`（最多 50 条，超出滚动加载）
 - **首次/无历史**：注入一条 Orchestrator 早安卡（数据来自 `GET /api/calendar/daily` 的统计）
-- WebSocket：如果 storage 里有 `current_thread_id`，尝试连 `wss://.../ws/{thread_id}?token=jwt`，连不上则放弃（MVP 不重连）
+- WebSocket：如果 storage 里有 `current_thread_id`，尝试连 `wss://.../ws/{thread_id}?token=jwt`，连不上触发**重连机制**（见下）
+
+#### WebSocket 重连机制（MVP 必须）
+- `wx.onSocketClose` 触发 → 1 秒后重连一次（带退避：1s, 3s, 8s 三次后放弃）
+- 重连失败 → 思考态卡片右上角显示 `[刷新]` 按钮
+- 点 `[刷新]` → 调 `GET /api/agent/{thread_id}/state`（**新增接口**），拉当前快照
+  - 返回 `{ status: "running" | "waiting_review" | "done" | "error", draft, final, error }`
+  - 按 status 重渲染卡片（绕过 WS）
+- 网络恢复后 `wx.onSocketOpen` → 自动重新订阅
 
 #### 发送消息
 
 自由对话和工作流触发走两条不同路径：
 
-- **自由对话**（用户在底部输入框打字/发问）：POST `/api/agent/chat { message }`（**新增接口**，见接口缺口 #7）
+- **自由对话**（用户在底部输入框打字/发问）：POST `/api/agent/chat { message, history }`（**新增接口**，见接口缺口 #7）
+  - `history`：前端维护**最近 10 条**消息（user + assistant 交替），每次请求带上
   - 后端单独的轻量 LLM 处理，不进入 4 个工作流，无 review
   - 用于：解释概念、查信息、闲聊、引导
 - **工作流触发**（从卡片按钮、日程页跳转）：POST `/api/agent/run { task_type, ... }`
   - 显式 task_type，进入对应 LangGraph 工作流
   - 有 review 节点，会推送审核卡
+  - 工作流不享受 `history` 上下文（每次独立任务）
 
-> 这种分离避免了"前端猜 task_type"的复杂性，也让自由对话可以做得更轻量（不写 outreach_records）。
+> 这种分离避免了"前端猜 task_type"的复杂性。`history` 在自由对话中保留多轮上下文（如"帮我查张伟" → "他现在什么职级"），这是 chat-first 设计的基本预期。
 
 #### 卡片按钮交互
 | 按钮 | 行为 |
@@ -255,10 +328,14 @@
 │ ┌──────────────────────────────────┐  │
 │ │ ✍️ 粘贴文字稿                    │  │
 │ │   (展开输入框)                    │  │
+│ │   ⚠️ 长于 5000 字建议改用音频     │  │
+│ │      上传或在 PC 端粘贴          │  │
 │ └──────────────────────────────────┘  │
 │                                        │
 └────────────────────────────────────────┘
 ```
+
+> 粘贴入口主要给"几百字关键摘录"场景用。1 小时会议的几万字文字稿在手机上既难粘贴又易卡顿，UI 文案要明确引导用户走音频或 PC 端。
 
 #### 模式 1：从腾讯会议拉取
 1. 调用 `GET /api/me/tencent/meetings?status=ended&days=31` 拉历史会议列表
@@ -369,21 +446,28 @@
 | 4 | `GET /api/me/tencent/meetings?status=ended&days=31` | 拉 IR 的腾讯会议列表 | 0.5 天 |
 | 5 | `GET /api/investors/{id}/interactions?limit=5` | 投资人详情页用 | 0.3 天 |
 | 6 | `GET /api/outreach/pending` | 待审核草稿列表（草稿历史页 + 对话首屏聚合） | 0.5 天 |
-| 7 | `POST /api/agent/chat { message }` | 通用对话（自由问答） | 1 天 |
+| 7 | `POST /api/agent/chat { message, history }` | 通用对话（自由问答 + 短期上下文） | 1 天 |
 | 8 | 修改 `/api/agent/run`：增 `tencent_meeting_id` 字段 | 触发腾讯纪要拉取 | 0.5 天 |
 | 9 | 新建 `services/tencent_meeting.py`（MCP 客户端封装） | 调腾讯 MCP | 1 天 |
 | 10 | `meeting_minutes` workflow：增 `fetch_tencent_minutes` 节点 | 优先用腾讯纪要 | 0.5 天 |
+| 11 | `GET /api/calendar/month?month=YYYY-MM` | 月历视图聚合（取代每日 30 次请求） | 0.5 天 |
+| 12 | `GET /api/agent/{thread_id}/state` | WS 断线后拉当前快照（thinking → done/waiting_review/error） | 0.5 天 |
+| 13 | 改造 `/api/auth/login` + 新增 `POST /api/auth/bind_phone` | 手机号反向匹配绑定流程 | 1 天 |
 
-**后端总工作量**：约 5.3 天
+**后端总工作量**：约 7.3 天
 
 ## 7. 数据库变更
 
 ```sql
 ALTER TABLE ir_users
-  ADD COLUMN tencent_meeting_token VARBINARY(255) NULL COMMENT 'AES-encrypted personal token';
+  ADD COLUMN phone VARCHAR(20) NULL COMMENT '手机号，用于绑定时反向匹配',
+  ADD COLUMN tencent_meeting_token VARBINARY(255) NULL COMMENT 'AES-encrypted personal token',
+  ADD UNIQUE KEY uk_phone (phone),
+  MODIFY COLUMN wechat_openid VARCHAR(64) NULL;  -- openid 现在变成可空，绑定后才有值
 ```
 
-新增表（草稿历史用）：
+> 现有的 `/api/admin/users/{id}/bind` 接口失效，admin 后台改成只录手机号，openid 由小程序绑定流程自动写入。
+
 ```sql
 -- outreach_records 表已有，无需新增。
 -- 但需要确认有 ir_id 字段以支持 GET /api/outreach/pending 按用户过滤。
@@ -439,20 +523,27 @@ miniprogram/
 
 | 阶段 | 工作 | 估时 |
 |---|---|---|
-| **后端 P0** | 接口 1-9（不含 tencent integration），数据库迁移 | 2 天 |
-| **后端 P1** | tencent integration（接口 4 + service + workflow 节点） | 2 天 |
-| **前端 P0** | app.json/tabBar、登录、对话 Tab、投资人 Tab、日程 Tab（不含腾讯拉取）| 4 天 |
-| **前端 P1** | 会议纪要准备页（含腾讯拉取）、我页、腾讯设置页 | 2 天 |
-| **联调 + 修复** | 端到端 4 个工作流跑通 | 2 天 |
-| **总计** | | **~12 天** |
+| **后端 P0** | 接口 1, 5, 6, 7, 11, 12, 13 + DB 迁移 + 手机号绑定 | 3 天 |
+| **后端 P1** | 接口 2, 3, 4, 8, 9, 10（腾讯会议集成） | 2 天 |
+| **前端 P0** | app.json/tabBar、登录+绑定流程、对话 Tab（含 WS 重连）、投资人 Tab、日程 Tab | 4.5 天 |
+| **前端 P1** | 会议纪要准备页（含腾讯拉取）、我页、腾讯设置页、长内容审核 Modal | 2.5 天 |
+| **联调 + 修复** | 端到端 4 个工作流跑通 + 移动端弱网测试 | 2 天 |
+| **总计** | | **~14 天** |
+
+> 关键路径上的卡点：**企业认证小程序申请**。如果公司还没认证，并行做 ≥1 周。
 
 ## 11. 待确认（TBD）
 
-- **Q1**：自由对话 (`/api/agent/chat`) 是否需要保留对话上下文（多轮记忆）？MVP 推荐**不保留**（每次独立 LLM 调用），简化实现；如果体验差再加。
-- **Q2**：「如何开启云录制」教程链接的具体 URL —— 走腾讯官方帮助中心 or 公司内部 SOP 文档？
-- **Q3**：草稿历史页是否需要按 task_type 分组？还是按时间倒序简单列？**推荐**简单时间倒序 + 顶部 chip 筛选 task_type。
-- **Q4**：投资人 `+ 新增` 按钮 —— MVP 完全不做？还是给个 admin-only 的最小实现？**推荐**MVP 完全不做，按钮隐藏，admin 用后台管理。
-- **Q5**：日程月视图的 N 个月数据怎么聚合 —— 进入即拉当月所有日 (~30 个 /api/calendar/daily 请求 = 慢)？还是新增 `GET /api/calendar/month?month=YYYY-MM` 单个接口？**推荐后者**，需新增到接口缺口列表。
+- **Q1**：「如何开启云录制」教程链接的具体 URL —— 走腾讯官方帮助中心 or 公司内部 SOP 文档？
+- **Q2**：草稿历史页是否需要按 task_type 分组？还是按时间倒序简单列？**推荐**简单时间倒序 + 顶部 chip 筛选 task_type。
+- **Q3**：投资人 `+ 新增` 按钮 —— MVP 完全不做？还是给个 admin-only 的最小实现？**推荐**MVP 完全不做，按钮隐藏，admin 用后台管理。
+- **Q4**：**企业认证小程序状态** —— 公司是否已有企业认证的微信小程序主体？没有的话需要先申请（约 1-5 工作日 + 300 元/年），否则 `wx.getPhoneNumber` 走不通，绑定流程失效。
+- **Q5**：admin 后台是否已有？还是需要一并做？现有 `/api/admin/users` 接口走 JWT，需要一个简单的 web 后台或脚本工具来录入 IR 手机号。
+
+> 已解决（移除）：
+> - ~~自由对话上下文记忆~~ — 已确定保留前端 10 条 history
+> - ~~月视图聚合接口~~ — 已落实到接口缺口 #11
+> - ~~WS 重连~~ — 已落实到接口缺口 #12 + 5.3 重连机制
 
 ## 12. 验收标准
 
