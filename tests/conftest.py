@@ -82,3 +82,6 @@ async def authed_client(override_db, db_session):
     token = create_token(user.id, user.role)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as client:
         yield client, user
+    # cleanup: delete the user so it doesn't linger across test sessions
+    await db_session.delete(user)
+    await db_session.commit()

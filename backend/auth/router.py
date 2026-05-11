@@ -2,7 +2,7 @@ import json
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
@@ -38,7 +38,7 @@ class BindPhoneRequest(BaseModel):
     iv: str
 
 
-@router.post("/login")
+@router.post("/login", response_model=Union[LoginResponse, NeedBindingResponse])
 async def wechat_login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     session = await exchange_code_for_session(body.code)
     openid = session["openid"]
@@ -56,6 +56,8 @@ async def wechat_login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     # openid not bound yet — start phone-binding flow
     login_session = uuid4().hex
     redis = await get_redis()
+    # TODO(security): session_key is sensitive (can decrypt all WeChat user data).
+    # For production hardening, encrypt with services.crypto_service before Redis storage.
     await redis.setex(
         f"auth:session:{login_session}",
         600,
@@ -76,6 +78,8 @@ async def bind_phone(body: BindPhoneRequest, db: AsyncSession = Depends(get_db))
     session_key = session_data["session_key"]
 
     try:
+        # TODO(security): WeChat recommends validating watermark.appid and watermark.timestamp
+        # in the decrypted payload to prevent replay across apps. Acceptable risk for MVP.
         data = decrypt_user_data(body.encryptedData, body.iv, session_key)
         phone = data["phoneNumber"]
     except Exception as exc:

@@ -160,3 +160,29 @@ async def test_bind_phone_expired_session_returns_410(override_db):
 
     assert resp.status_code == 410
     assert "expired" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_bind_phone_inactive_user_returns_403(db_session, override_db):
+    """Phone matches an IR user but is_active=False → 403 (same as no-match)."""
+    from models.ir_users import IRUser
+
+    # Create an IR user with matching phone but inactive
+    inactive_user = IRUser(name="离职IR", phone="13800000099", role="ir", is_active=False)
+    db_session.add(inactive_user)
+    await db_session.commit()
+
+    stored = json.dumps({"openid": "some_openid_inactive", "session_key": "sk_inactive="})
+    mock_redis = _make_mock_redis(stored_value=stored)
+
+    with patch("auth.router.get_redis", AsyncMock(return_value=mock_redis)), \
+         patch("auth.router.decrypt_user_data", return_value={"phoneNumber": "13800000099"}):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/api/auth/bind_phone", json={
+                "login_session": "aaaabbbbccccddddeeeeffffaaaabbbb",
+                "encryptedData": "fakeEncData",
+                "iv": "fakeIv==",
+            })
+
+    assert resp.status_code == 403
+    assert "账号未开通" in resp.json()["detail"]
