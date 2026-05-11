@@ -1,28 +1,31 @@
 <view class="chat">
-  <view class="messages">
+  <scroll-view scroll-y class="messages" scroll-into-view="{{scrollToView}}" scroll-with-animation>
     <block wx:for="{{messages}}" wx:key="id">
-      <view wx:if="{{item.kind === 'user'}}" class="user-bubble">{{item.text}}</view>
-      <thinking
-        wx:elif="{{item.kind === 'thinking'}}"
-        agent="{{item.agent}}"
-        label="{{item.label || '正在思考'}}" />
-      <agent-card
-        wx:elif="{{item.kind === 'agent_card'}}"
-        agent="{{item.agent}}"
-        title="{{item.title}}"
-        body="{{item.body}}"
-        actions="{{item.actions}}"
-        show-status="{{item.showStatus}}"
-        bind:action="onCardAction" />
+      <view id="{{item.id}}">
+        <view wx:if="{{item.kind === 'user'}}" class="user-bubble">{{item.text}}</view>
+        <view wx:elif="{{item.kind === 'agent_text'}}" class="agent-text">{{item.body}}</view>
+        <thinking
+          wx:elif="{{item.kind === 'thinking'}}"
+          agent="{{item.agent}}"
+          label="{{item.thinkingLabel || '正在思考'}}" />
+        <agent-card
+          wx:elif="{{item.kind === 'agent_card'}}"
+          agent="{{item.agent}}"
+          title="{{item.title}}"
+          body="{{item.body}}"
+          actions="{{item.actions}}"
+          show-status="{{item.showStatus}}"
+          bind:action="onCardAction" />
+      </view>
     </block>
-  </view>
+  </scroll-view>
 
   <view class="input-bar">
     <input
       class="input"
       value="{{input}}"
       bindinput="onInput"
-      placeholder="输入消息..."
+      placeholder="问 Agent 任何事..."
       confirm-type="send"
       bindconfirm="onSend" />
     <view class="send-btn" bindtap="onSend">发送</view>

@@ -81,4 +81,5 @@ wsManager.unsubscribe(thread_id);
 - F2 ✅ splash 启动页 + 手机号绑定页完成
 - F3 ✅ 日程 Tab（月视图 + 日视图）完成
 - F4a ✅ 对话 Tab 骨架 + agent-card + thinking 组件完成
-- F4b-F10 待实现 (业务页)
+- F4b ✅ 对话 Tab WS 集成 + Orchestrator 早安卡完成
+- F4c-F10 待实现 (业务页)

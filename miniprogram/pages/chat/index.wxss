@@ -1,10 +1,15 @@
 page { background: var(--bg-base); }
 .chat {
   display: flex; flex-direction: column;
-  min-height: 100vh;
-  padding-bottom: 120rpx;
+  height: 100vh;
+  padding-bottom: 0; /* 由 scroll-view 自己处理 */
 }
-.messages { flex: 1; padding: 32rpx; }
+.messages {
+  flex: 1;
+  padding: 32rpx;
+  padding-bottom: 140rpx; /* 给输入栏留空间 */
+  height: 0;  /* flex shrinking 关键 */
+}
 
 .user-bubble {
   align-self: flex-end;
@@ -15,6 +20,14 @@ page { background: var(--bg-base); }
   font-size: 28rpx;
   line-height: 1.6;
   display: inline-block;
+}
+
+.agent-text {
+  background: #fff; padding: 24rpx;
+  border-radius: 16rpx;
+  margin-bottom: 16rpx;
+  font-size: 28rpx; line-height: 1.7;
+  border-left: 8rpx solid var(--agent-content);
 }
 
 .input-bar {
