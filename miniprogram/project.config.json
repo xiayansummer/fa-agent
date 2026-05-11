@@ -1,0 +1,23 @@
+{
+  "appid": "wxTESTAPPID000000000",
+  "compileType": "miniprogram",
+  "libVersion": "3.0.0",
+  "miniprogramRoot": "./",
+  "projectname": "fa-agent",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true,
+    "useCompilerPlugins": ["typescript"],
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "compileTrick": {
+    "skipFirstUploadCheck": true
+  }
+}

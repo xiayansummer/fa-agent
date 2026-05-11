@@ -1,0 +1,22 @@
+.splash {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #6B7AFF 0%, #8B5CF6 100%);
+  color: #fff;
+  padding: 200rpx 60rpx;
+  text-align: center;
+}
+.logo {
+  width: 100rpx; height: 100rpx;
+  background: rgba(255,255,255,0.2);
+  border-radius: 16rpx;
+  line-height: 100rpx;
+  font-weight: 700;
+  margin: 0 auto 60rpx;
+}
+.title { font-size: 48rpx; font-weight: 700; }
+.subtitle { font-size: 28rpx; opacity: 0.8; margin-top: 20rpx; }
+.enter-btn {
+  margin-top: 100rpx;
+  background: #fff;
+  color: #6B7AFF;
+}

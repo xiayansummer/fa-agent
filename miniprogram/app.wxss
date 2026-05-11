@@ -1,0 +1,21 @@
+/* Agent 颜色 CSS 变量 */
+page {
+  --agent-orchestrator: #6B7AFF;
+  --agent-list: #8B5CF6;
+  --agent-content: #374151;
+  --agent-outreach: #F59E0B;
+  --bg-base: #f5f5f7;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --border-light: #e5e5ea;
+
+  background: var(--bg-base);
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text-primary);
+}
+
+button {
+  background: var(--agent-orchestrator);
+  color: #fff;
+  border-radius: 8rpx;
+}

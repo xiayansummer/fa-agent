@@ -1,0 +1,2 @@
+.container { padding: 40rpx; }
+.placeholder { text-align: center; color: #999; padding: 80rpx 0; }

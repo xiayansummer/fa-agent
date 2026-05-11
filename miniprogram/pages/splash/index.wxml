@@ -1,0 +1,6 @@
+<view class="splash">
+  <view class="logo">FA</view>
+  <view class="title">你的 IR 工作台</view>
+  <view class="subtitle">由 4 个 Agent 协同完成</view>
+  <button class="enter-btn" bindtap="onEnter">进入工作台 →</button>
+</view>
