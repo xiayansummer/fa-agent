@@ -7,6 +7,7 @@ from api.agent import router as agent_router
 from api.upload import router as upload_router
 from api.me import router as me_router
 from api.interactions import router as interactions_router
+from api.outreach import router as outreach_router
 
 # Load all Skills to register them into skill_registry
 import skills.claude_skill  # noqa: F401
@@ -28,6 +29,7 @@ app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
 app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
 app.include_router(me_router, prefix="/api/me", tags=["me"])
 app.include_router(interactions_router, prefix="/api/investors", tags=["interactions"])
+app.include_router(outreach_router, prefix="/api/outreach", tags=["outreach"])
 
 @app.get("/health")
 async def health():
