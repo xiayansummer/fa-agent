@@ -7,7 +7,8 @@
     "pages/bind-phone/index",
     "pages/calendar-day/index",
     "pages/investor-detail/index",
-    "pages/investor-edit/index"
+    "pages/investor-edit/index",
+    "pages/interaction-new/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

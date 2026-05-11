@@ -1,0 +1,67 @@
+<view class="page">
+  <view class="section">
+    <view class="row">
+      <view class="label">投资人</view>
+      <view class="value">{{investorName || '加载中...'}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">类型</view>
+    <view class="type-row">
+      <view
+        wx:for="{{typeOptions}}"
+        wx:key="value"
+        class="type-btn {{type === item.value ? 'selected' : ''}}"
+        data-type="{{item.value}}"
+        bindtap="onTypeTap">
+        {{item.label}}
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="row">
+      <view class="label">日期 *</view>
+      <picker mode="date" value="{{date}}" bindchange="onDateChange">
+        <view class="picker-display">{{date}}</view>
+      </picker>
+    </view>
+    <view class="row">
+      <view class="label">时间</view>
+      <picker mode="time" value="{{time}}" bindchange="onTimeChange">
+        <view class="picker-display">{{time}}</view>
+      </picker>
+    </view>
+    <view class="row" wx:if="{{showDuration}}">
+      <view class="label">时长 (分钟)</view>
+      <input class="input" type="number" value="{{duration}}" bindinput="onDurationInput" placeholder="选填" />
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">内容/要点 *</view>
+    <textarea
+      class="textarea"
+      value="{{summary}}"
+      bindinput="onSummaryInput"
+      placeholder="聊了什么、关注什么、下一步..."
+      auto-height />
+  </view>
+
+  <view class="section">
+    <view class="row">
+      <view class="label">下次跟进</view>
+      <picker mode="date" value="{{followupDate}}" bindchange="onFollowupChange">
+        <view class="picker-display">{{followupDate || '未设'}}</view>
+      </picker>
+      <view wx:if="{{followupDate}}" class="clear-btn" bindtap="clearFollowup">×</view>
+    </view>
+  </view>
+
+  <view class="bottom">
+    <view class="save-btn {{saving ? 'disabled' : ''}}" bindtap="{{saving ? '' : 'onSave'}}">
+      {{saving ? '保存中...' : '保存'}}
+    </view>
+  </view>
+</view>
