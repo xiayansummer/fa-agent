@@ -49,10 +49,34 @@
 | `getCurrentUser(forceFresh?)` | 带模块级缓存；`forceFresh=true` 强制重新请求 `/api/me` |
 | `clearCachedUser()` | 清内存缓存（登出时自动不需调用，logout 会 reLaunch） |
 
+### WebSocket（services/ws.ts）
+
+订阅 Agent 工作流事件流：
+
+```typescript
+import { wsManager } from './services/ws';
+
+wsManager.subscribe(thread_id, (event) => {
+  switch (event.type) {
+    case 'node_done': // ...
+    case 'waiting_review': // ...
+    case 'done': // ...
+    case 'error': // ...
+    case 'snapshot': // 重连失败后拉的快照
+  }
+});
+
+// 离开页面：
+wsManager.unsubscribe(thread_id);
+```
+
+重连策略：1s/3s/8s 退避，3 次失败后调 `/state` 拉快照。
+`done` 或 `error` 事件会主动断开，不重连。
+
 ## 当前状态
 
 - F1a ✅ 脚手架完成
 - F1b ✅ API/Auth services 完成
-- F1c 待实现 (WS service)
+- F1c ✅ WS service 完成
 - F2 待实现 (登录 + 绑定页)
 - F3-F10 待实现 (业务页)
