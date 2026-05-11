@@ -358,24 +358,92 @@ admin 后台 ──→ 录入 IR 姓名 + 手机号 ──→ ir_users (openid=N
 #### 提交后
 所有 3 种模式提交后 → 跳到对话 Tab，订阅 WS 看 Agent 处理 → 弹审核卡。
 
-### 5.6 投资人 Tab
+### 5.6 投资人 Tab（全 CRUD + 互动记录）
+
+> **产品定位**：小程序是 IR 操作系统的主入口，IR 不应依赖 PC 端企名片。投资人/互动相关在小程序完成闭环。
 
 #### 列表页
-- 顶部：标题「投资人库」+ 右上角头像 + `+ 新增`（admin 才显示，MVP 暂不实现新增功能）
+- 顶部：标题「投资人库」+ 右上角头像 + **`+ 新增`** 按钮（所有 IR 可见）
 - 搜索框（query: `q`）
 - 横向滚动标签条：A轮/B轮/C轮/医疗/AI/SaaS/...（多选，标签状态本地保存）
-- 投资人卡片列表（按关系热度排序，由后端返回顺序决定）
+- 投资人卡片列表（按关系热度排序）
 - 数据：`GET /api/investors?stage=&industry=&q=`
 - 底部：`共 N 位投资人 · ✦ AI 已按关系热度排序`
 
 #### 详情页（`/pages/investor/detail?id=X`）
-- 头部：紫渐变 + 头像（首字符）+ 名字 + 机构·职务
-- 关系值：5 点
-- 标签 chips
-- "AI 偏好画像"区：`profile_notes` 解析为多条 `[MM-DD] 文字`
-- "近期互动"区：从 `interaction_logs` 表拉，`GET /api/investors/{id}/interactions?limit=5`（**新接口**）
-- 底部 sticky 大按钮：`✦ 问 Agent 关于 张伟`
-- 点按钮 → 跳对话 Tab，自动发：`"展开张伟（高榕资本）的近况和建议跟进方式"`，触发 `task_type=daily_push, investor_ids=[X]` 工作流
+- 头部：紫渐变 + 头像（首字符）+ 名字 + 机构·职务 + **右上角 `编辑` 按钮**
+- 关系值：5 点（可点点修改 0-5）
+- 标签 chips（点 `+` 加标签、点 chip 删）
+- "AI 偏好画像"区：`profile_notes` 多段 `[MM-DD] 文字`
+- "近期互动"区：从 `interaction_logs` 表拉，列出最近 5 条 + **`+ 记一条互动`** 按钮
+- 底部 sticky 按钮组：
+  - `✦ 问 Agent 关于 张伟`（左，主按钮）
+  - `更多 ⋯`（右，菜单：编辑 / 删除）
+
+#### 新增/编辑投资人页（`/pages/investor/edit?id=X`，id 为空时是新增）
+
+```
+┌────────────────────────────────────────┐
+│ < 新增投资人              [保存]        │
+├────────────────────────────────────────┤
+│ * 姓名     [____________]              │
+│   机构     [____________]              │
+│   职务     [____________]              │
+│   关系值   ● ● ● ○ ○ (点选 0-5)       │
+│                                        │
+│  联系方式                               │
+│   手机     [____________]              │
+│   微信     [____________]              │
+│   邮箱     [____________]              │
+│                                        │
+│  偏好                                   │
+│   行业标签 [A轮][消费][TMT]+           │
+│   阶段     [A轮][B轮]+                 │
+│   单笔     [____________]              │
+│                                        │
+│  纪念日                                 │
+│   生日     [2026-05-11 >]              │
+│   入职机构 [2020-01-10 >]              │
+│                                        │
+│  AI 偏好画像                            │
+│   ┌────────────────────────────────┐  │
+│   │ (多行文本，初始为空)            │  │
+│   └────────────────────────────────┘  │
+│                                        │
+│        [删除投资人] (编辑模式才显示)    │
+└────────────────────────────────────────┘
+```
+
+- 行业标签/阶段：点 `+` 弹底部 actionsheet 选预设标签
+- 删除：弹二次确认 → DELETE `/api/investors/{id}`（**软删除**，写 `is_active=false`）
+- 保存：POST/PUT `/api/investors`
+
+#### 手动记互动页（`/pages/interaction/new?investor_id=X`）
+
+```
+┌────────────────────────────────────────┐
+│ < 记一条互动              [保存]        │
+├────────────────────────────────────────┤
+│ 投资人  张伟（高榕资本）  [更换]        │
+│                                        │
+│ * 类型   [○微信 ○电话 ○见面 ○邮件 ○其他]│
+│ * 时间   [2026-05-11 14:30 >]          │
+│   时长   [__] 分钟（电话/见面）        │
+│                                        │
+│ * 内容/要点                             │
+│   ┌────────────────────────────────┐  │
+│   │ 聊了项目A的估值逻辑，他认为...    │  │
+│   └────────────────────────────────┘  │
+│                                        │
+│   下次跟进时间                          │
+│   [2026-05-25 >] [+ 加入日历]          │
+└────────────────────────────────────────┘
+```
+
+保存后：
+- POST `/api/investors/{id}/interactions { type, occurred_at, duration_min, summary, next_followup_at }`
+- 后端写 `interaction_logs` 表 + 更新 investor 的 `last_interaction_at`
+- 如果勾选"加入日历"，按 `next_followup_at` 在日历上显示一条 `followup` 类型事件
 
 ### 5.7「我」页面
 
@@ -425,12 +493,10 @@ admin 后台 ──→ 录入 IR 姓名 + 手机号 ──→ ir_users (openid=N
 │                                        │
 │ 📖 [如何开启云录制 →]                   │
 │    https://meeting.tencent.com/         │
-│    support/topic/cloud-recording/      │
+│    support/topic/1853/index.html        │
 │                                        │
 └────────────────────────────────────────┘
 ```
-
-> "如何开启云录制"链接的 URL 待确认，可换成腾讯会议帮助中心搜索结果页或客服文章。
 
 #### 行为
 - `[测试连接]` → POST `/api/me/tencent/test { token }` → 后端调 MCP `convert_timestamp` 验证 → 返回 `{ ok: true/false, hint }`
@@ -453,8 +519,13 @@ admin 后台 ──→ 录入 IR 姓名 + 手机号 ──→ ir_users (openid=N
 | 11 | `GET /api/calendar/month?month=YYYY-MM` | 月历视图聚合（取代每日 30 次请求） | 0.5 天 |
 | 12 | `GET /api/agent/{thread_id}/state` | WS 断线后拉当前快照（thinking → done/waiting_review/error） | 0.5 天 |
 | 13 | 改造 `/api/auth/login` + 新增 `POST /api/auth/bind_phone` | 手机号反向匹配绑定流程 | 1 天 |
+| 14 | `POST /api/investors` | 新增投资人 | 0.3 天 |
+| 15 | `PUT /api/investors/{id}` | 编辑投资人 | 0.3 天 |
+| 16 | `DELETE /api/investors/{id}` | 软删投资人（is_active=false） | 0.2 天 |
+| 17 | `POST /api/investors/{id}/interactions` | 手动记一条互动 + 自动更新 last_interaction_at | 0.5 天 |
+| 18 | 新建 `interaction_logs` 模型 + 迁移 | 互动记录持久化（含 type/duration/summary/next_followup） | 0.5 天 |
 
-**后端总工作量**：约 7.3 天
+**后端总工作量**：约 9.1 天
 
 ## 7. 数据库变更
 
@@ -473,6 +544,26 @@ ALTER TABLE ir_users
 -- 但需要确认有 ir_id 字段以支持 GET /api/outreach/pending 按用户过滤。
 ```
 
+**新增 interaction_logs 表**：
+
+```sql
+CREATE TABLE interaction_logs (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  investor_id     INT NOT NULL,
+  ir_id           INT NOT NULL COMMENT '哪个 IR 记的',
+  type            VARCHAR(20) NOT NULL COMMENT 'wechat|phone|meeting|email|other',
+  occurred_at     DATETIME NOT NULL COMMENT '互动发生时间',
+  duration_min    SMALLINT NULL COMMENT '时长（分钟），电话/见面用',
+  summary         TEXT NOT NULL COMMENT '要点摘要',
+  next_followup_at DATETIME NULL COMMENT '建议下次跟进时间',
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_investor_time (investor_id, occurred_at DESC),
+  INDEX idx_ir (ir_id),
+  CONSTRAINT fk_il_investor FOREIGN KEY (investor_id) REFERENCES investors(id),
+  CONSTRAINT fk_il_ir FOREIGN KEY (ir_id) REFERENCES ir_users(id)
+);
+```
+
 ## 8. 项目结构（小程序前端）
 
 ```
@@ -487,6 +578,8 @@ miniprogram/
 │   ├── chat/                 # 对话 Tab
 │   ├── investors/            # 投资人 Tab
 │   ├── investor-detail/      # 投资人详情
+│   ├── investor-edit/        # 新增/编辑投资人
+│   ├── interaction-new/      # 手动记互动
 │   ├── meeting-prepare/      # 会议纪要准备
 │   ├── me/                   # 我
 │   ├── tencent-setup/        # 腾讯会议接入
@@ -525,25 +618,30 @@ miniprogram/
 |---|---|---|
 | **后端 P0** | 接口 1, 5, 6, 7, 11, 12, 13 + DB 迁移 + 手机号绑定 | 3 天 |
 | **后端 P1** | 接口 2, 3, 4, 8, 9, 10（腾讯会议集成） | 2 天 |
-| **前端 P0** | app.json/tabBar、登录+绑定流程、对话 Tab（含 WS 重连）、投资人 Tab、日程 Tab | 4.5 天 |
+| **后端 P2** | 接口 14-18（投资人 CRUD + 互动记录） + interaction_logs 表 | 2 天 |
+| **前端 P0** | app.json/tabBar、登录+绑定流程、对话 Tab（含 WS 重连）、投资人 Tab（只读）、日程 Tab | 4.5 天 |
 | **前端 P1** | 会议纪要准备页（含腾讯拉取）、我页、腾讯设置页、长内容审核 Modal | 2.5 天 |
-| **联调 + 修复** | 端到端 4 个工作流跑通 + 移动端弱网测试 | 2 天 |
-| **总计** | | **~14 天** |
+| **前端 P2** | 投资人新增/编辑/删除、手动记互动 | 1.5 天 |
+| **联调 + 修复** | 端到端 4 个工作流 + 投资人 CRUD + 移动端弱网测试 | 2 天 |
+| **总计** | | **~17.5 天** |
 
-> 关键路径上的卡点：**企业认证小程序申请**。如果公司还没认证，并行做 ≥1 周。
+> **企业认证小程序申请**已在走流程，前期开发用测试版联调。
+> **加 admin 录入 IR 用户**：MVP 不做 admin 后台，admin 直接 curl 调 `POST /api/admin/users` 加 IR（用户数 <20 不需要专门工具）。
 
 ## 11. 待确认（TBD）
 
-- **Q1**：「如何开启云录制」教程链接的具体 URL —— 走腾讯官方帮助中心 or 公司内部 SOP 文档？
-- **Q2**：草稿历史页是否需要按 task_type 分组？还是按时间倒序简单列？**推荐**简单时间倒序 + 顶部 chip 筛选 task_type。
-- **Q3**：投资人 `+ 新增` 按钮 —— MVP 完全不做？还是给个 admin-only 的最小实现？**推荐**MVP 完全不做，按钮隐藏，admin 用后台管理。
-- **Q4**：**企业认证小程序状态** —— 公司是否已有企业认证的微信小程序主体？没有的话需要先申请（约 1-5 工作日 + 300 元/年），否则 `wx.getPhoneNumber` 走不通，绑定流程失效。
-- **Q5**：admin 后台是否已有？还是需要一并做？现有 `/api/admin/users` 接口走 JWT，需要一个简单的 web 后台或脚本工具来录入 IR 手机号。
+无未决问题。所有原 Q1-Q5 已解决：
 
-> 已解决（移除）：
-> - ~~自由对话上下文记忆~~ — 已确定保留前端 10 条 history
-> - ~~月视图聚合接口~~ — 已落实到接口缺口 #11
-> - ~~WS 重连~~ — 已落实到接口缺口 #12 + 5.3 重连机制
+| 原问题 | 落地 |
+|---|---|
+| ~~Q1 云录制教程链接~~ | 用 `meeting.tencent.com/support/topic/1853/index.html` |
+| ~~Q2 草稿历史排序~~ | 时间倒序 + chip 筛选 task_type |
+| ~~Q3 新增投资人~~ | 全 CRUD（新增/编辑/软删 + 手动记互动），见 5.6 |
+| ~~Q4 企业认证小程序~~ | 已在申请，开发期用测试版联调 |
+| ~~Q5 admin 后台~~ | MVP 不做，admin 直接 curl `POST /api/admin/users`（IR <20 人） |
+| ~~自由对话上下文~~ | 前端维护 10 条 history |
+| ~~月视图聚合接口~~ | 接口缺口 #11 |
+| ~~WS 重连机制~~ | 接口缺口 #12 + 5.3 重连逻辑 |
 
 ## 12. 验收标准
 
