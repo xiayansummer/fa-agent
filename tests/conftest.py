@@ -1,8 +1,30 @@
+import os
+
+# Stub all required Settings fields so tests can run without .env
+_REQUIRED_STUBS = {
+    "MYSQL_URL": "mysql+aiomysql://root:test@localhost:3306/test",
+    "REDIS_URL": "redis://localhost:6379/0",
+    "WECHAT_APPID": "test",
+    "WECHAT_SECRET": "test",
+    "JWT_SECRET_KEY": "test-secret-key-32-chars-minimum",
+    "AI_API_KEY": "test",
+    "TAVILY_API_KEY": "test",
+    "QMINGPIAN_TOKEN": "test",
+    "TENCENT_SECRET_ID": "test",
+    "TENCENT_SECRET_KEY": "test",
+    "TENCENT_MEETING_APP_ID": "test",
+    "TENCENT_MEETING_SECRET_ID": "test",
+    "TENCENT_MEETING_SECRET_KEY": "test",
+    "TOKEN_ENCRYPT_KEY": "j5HMo36zfzdv1pQbvtgPvlxr2mMXuZN8nRtFgUnUM6E=",  # valid Fernet key for tests only
+}
+for k, v in _REQUIRED_STUBS.items():
+    os.environ.setdefault(k, v)
+
+# THEN do project imports
 import pytest
 import pytest_asyncio
 import asyncio
 import sys
-import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 

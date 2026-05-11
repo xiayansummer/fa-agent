@@ -6,34 +6,11 @@ import sys
 import pytest
 from cryptography.fernet import Fernet
 
-# ---------------------------------------------------------------------------
-# Bootstrap: add backend to sys.path BEFORE importing any backend modules.
-# Env vars are set here as fallback stubs in case a .env file is absent
-# (e.g. CI). pydantic-settings prefers .env over os.environ so a real .env
-# on disk takes precedence; these setdefault calls never overwrite it.
-# ---------------------------------------------------------------------------
+# Env stubs are set by conftest.py before any project imports.
+# sys.path is also set there, but we insert here as well for safety when
+# running this file standalone (pytest tests/test_crypto.py).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-_REQUIRED_STUBS = {
-    "TOKEN_ENCRYPT_KEY": Fernet.generate_key().decode(),
-    "MYSQL_URL": "mysql+aiomysql://x:x@localhost/x",
-    "REDIS_URL": "redis://localhost/0",
-    "WECHAT_APPID": "wx_stub",
-    "WECHAT_SECRET": "stub",
-    "JWT_SECRET_KEY": "stub-jwt-secret-that-is-long-enough",
-    "AI_API_KEY": "sk-stub",
-    "TAVILY_API_KEY": "tvly-stub",
-    "QMINGPIAN_TOKEN": "stub",
-    "TENCENT_SECRET_ID": "stub",
-    "TENCENT_SECRET_KEY": "stub",
-    "TENCENT_MEETING_APP_ID": "stub",
-    "TENCENT_MEETING_SECRET_ID": "stub",
-    "TENCENT_MEETING_SECRET_KEY": "stub",
-}
-for _k, _v in _REQUIRED_STUBS.items():
-    os.environ.setdefault(_k, _v)
-
-# Now safe to import — settings will pick up values from .env or os.environ.
 from services.crypto_service import encrypt, decrypt  # noqa: E402
 
 
