@@ -1,0 +1,80 @@
+<view class="edit">
+  <view class="section">
+    <view class="row">
+      <view class="label">姓名 <text class="req">*</text></view>
+      <input class="input" value="{{form.name}}" data-field="name" bindinput="onField" placeholder="姓名" />
+    </view>
+    <view class="row">
+      <view class="label">机构</view>
+      <input class="input" value="{{form.agency}}" data-field="agency" bindinput="onField" placeholder="如：红杉资本" />
+    </view>
+    <view class="row">
+      <view class="label">职务</view>
+      <input class="input" value="{{form.position}}" data-field="position" bindinput="onField" placeholder="如：合伙人" />
+    </view>
+    <view class="row">
+      <view class="label">关系值</view>
+      <view class="score-bar">
+        <view
+          wx:for="{{[1,2,3,4,5]}}"
+          wx:key="*this"
+          class="score-dot {{item <= form.relationship_score ? 'on' : ''}}"
+          data-score="{{item}}"
+          bindtap="onScoreTap">●</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">行业标签</view>
+    <view class="tag-grid">
+      <view
+        wx:for="{{industryOptions}}"
+        wx:key="*this"
+        class="tag {{form.industry_tags.indexOf(item) >= 0 ? 'selected' : ''}}"
+        data-field="industry_tags"
+        data-tag="{{item}}"
+        bindtap="onTagToggle">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">阶段偏好</view>
+    <view class="tag-grid">
+      <view
+        wx:for="{{stageOptions}}"
+        wx:key="*this"
+        class="tag {{form.stage_pref.indexOf(item) >= 0 ? 'selected' : ''}}"
+        data-field="stage_pref"
+        data-tag="{{item}}"
+        bindtap="onTagToggle">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="row">
+      <view class="label">生日</view>
+      <picker mode="date" value="{{form.birthday}}" bindchange="onBirthdayChange">
+        <view class="picker-display">{{form.birthday || '未填'}}</view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">AI 偏好画像 / 备注</view>
+    <textarea
+      class="textarea"
+      value="{{form.profile_notes}}"
+      data-field="profile_notes"
+      bindinput="onField"
+      placeholder="一行一条，AI 会用于个性化推送"
+      auto-height />
+  </view>
+
+  <view class="bottom">
+    <view wx:if="{{isEdit}}" class="del-btn" bindtap="onDelete">删除投资人</view>
+    <view class="save-btn {{saving ? 'disabled' : ''}}" bindtap="{{saving ? '' : 'onSave'}}">
+      {{saving ? '保存中...' : '保存'}}
+    </view>
+  </view>
+</view>

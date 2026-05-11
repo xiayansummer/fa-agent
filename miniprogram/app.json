@@ -6,7 +6,8 @@
     "pages/splash/index",
     "pages/bind-phone/index",
     "pages/calendar-day/index",
-    "pages/investor-detail/index"
+    "pages/investor-detail/index",
+    "pages/investor-edit/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

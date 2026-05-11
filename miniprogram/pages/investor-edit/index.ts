@@ -1,0 +1,149 @@
+import { api } from '../../services/api';
+
+interface FormState {
+  name: string;
+  agency: string;
+  position: string;
+  relationship_score: number;
+  industry_tags: string[];
+  stage_pref: string[];
+  profile_notes: string;
+  birthday: string;
+}
+
+interface PageData {
+  isEdit: boolean;
+  investorId: number;
+  form: FormState;
+  saving: boolean;
+  industryOptions: string[];
+  stageOptions: string[];
+}
+
+const INDUSTRY_OPTS = ['消费', 'TMT', '医疗', 'AI', 'SaaS', '硬件', '教育', '金融'];
+const STAGE_OPTS = ['天使', 'A轮', 'B轮', 'C轮', 'D轮', 'Pre-IPO'];
+
+Page<PageData, {}>({
+  data: {
+    isEdit: false,
+    investorId: 0,
+    form: {
+      name: '',
+      agency: '',
+      position: '',
+      relationship_score: 0,
+      industry_tags: [],
+      stage_pref: [],
+      profile_notes: '',
+      birthday: '',
+    },
+    saving: false,
+    industryOptions: INDUSTRY_OPTS,
+    stageOptions: STAGE_OPTS,
+  },
+
+  onLoad(opts: { id?: string }) {
+    if (opts.id) {
+      const id = parseInt(opts.id);
+      this.setData({ isEdit: true, investorId: id });
+      this._load();
+    }
+    wx.setNavigationBarTitle({ title: opts.id ? '编辑投资人' : '新增投资人' });
+  },
+
+  async _load() {
+    try {
+      const inv = await api.get<any>(`/api/investors/${this.data.investorId}`);
+      this.setData({
+        form: {
+          name: inv.name || '',
+          agency: inv.agency || '',
+          position: inv.position || '',
+          relationship_score: inv.relationship_score || 0,
+          industry_tags: inv.industry_tags || [],
+          stage_pref: inv.stage_pref || [],
+          profile_notes: inv.profile_notes || '',
+          birthday: inv.birthday || '',
+        },
+      });
+    } catch (e) {/* toast 由 api 处理 */}
+  },
+
+  onField(e: WechatMiniprogram.Input) {
+    const field = e.currentTarget.dataset.field as keyof FormState;
+    this.setData({ [`form.${field}`]: e.detail.value });
+  },
+
+  onScoreTap(e: WechatMiniprogram.TouchEvent) {
+    const score = parseInt(e.currentTarget.dataset.score as string);
+    this.setData({ 'form.relationship_score': score });
+  },
+
+  onTagToggle(e: WechatMiniprogram.TouchEvent) {
+    const field = e.currentTarget.dataset.field as 'industry_tags' | 'stage_pref';
+    const tag = e.currentTarget.dataset.tag as string;
+    const list = this.data.form[field] || [];
+    const next = list.includes(tag) ? list.filter(t => t !== tag) : [...list, tag];
+    this.setData({ [`form.${field}`]: next });
+  },
+
+  onBirthdayChange(e: WechatMiniprogram.PickerChange) {
+    this.setData({ 'form.birthday': e.detail.value as string });
+  },
+
+  async onSave() {
+    if (!this.data.form.name.trim()) {
+      wx.showToast({ title: '姓名必填', icon: 'none' });
+      return;
+    }
+
+    this.setData({ saving: true });
+    try {
+      // 过滤空字段
+      const payload: any = {};
+      Object.entries(this.data.form).forEach(([k, v]) => {
+        if (v === '' || v === null || (Array.isArray(v) && v.length === 0)) return;
+        payload[k] = v;
+      });
+      // 确保 name 总在
+      payload.name = this.data.form.name;
+
+      if (this.data.isEdit) {
+        await api.put(`/api/investors/${this.data.investorId}`, payload);
+        wx.showToast({ title: '已保存', icon: 'success' });
+      } else {
+        await api.post('/api/investors', payload);
+        wx.showToast({ title: '已创建', icon: 'success' });
+      }
+      setTimeout(() => wx.navigateBack(), 800);
+    } catch (e) {/* api toast handled */} finally {
+      this.setData({ saving: false });
+    }
+  },
+
+  async onDelete() {
+    const ok = await new Promise<boolean>(resolve => {
+      wx.showModal({
+        title: '确认删除？',
+        content: `投资人 ${this.data.form.name} 将被软删除（可恢复）`,
+        confirmColor: '#DC2626',
+        success: r => resolve(r.confirm),
+      });
+    });
+    if (!ok) return;
+
+    try {
+      await api.del(`/api/investors/${this.data.investorId}`);
+      wx.showToast({ title: '已删除', icon: 'success' });
+      setTimeout(() => {
+        // 回到列表（跳两层）
+        const pages = getCurrentPages();
+        if (pages.length >= 3) {
+          wx.navigateBack({ delta: 2 });
+        } else {
+          wx.navigateBack();
+        }
+      }, 800);
+    } catch (e) {/* toast */}
+  },
+});
