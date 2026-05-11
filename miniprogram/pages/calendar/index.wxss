@@ -1,2 +1,57 @@
-.container { padding: 40rpx; }
-.placeholder { text-align: center; color: #999; padding: 80rpx 0; }
+.calendar { padding: 32rpx; min-height: 100vh; background: var(--bg-base); }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32rpx; }
+.title { font-size: 36rpx; font-weight: 700; }
+.avatar {
+  width: 64rpx; height: 64rpx; border-radius: 50%;
+  background: var(--agent-orchestrator); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28rpx; font-weight: 600;
+}
+
+.month-nav {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #fff; border-radius: 16rpx; padding: 24rpx;
+  margin-bottom: 16rpx;
+}
+.arrow {
+  width: 60rpx; height: 60rpx; line-height: 56rpx; text-align: center;
+  font-size: 40rpx; color: var(--text-secondary);
+}
+.month-label { font-size: 32rpx; font-weight: 600; }
+
+.weekdays { display: grid; grid-template-columns: repeat(7, 1fr); padding: 16rpx; background: #fff; border-radius: 16rpx 16rpx 0 0; }
+.wd { text-align: center; color: var(--text-secondary); font-size: 24rpx; padding: 16rpx 0; }
+.days { display: grid; grid-template-columns: repeat(7, 1fr); background: #fff; border-radius: 0 0 16rpx 16rpx; padding: 0 16rpx 16rpx; }
+.day {
+  aspect-ratio: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative;
+  font-size: 28rpx;
+}
+.day.gray { color: #ccc; }
+.day.today .day-num {
+  background: var(--agent-orchestrator); color: #fff;
+  width: 56rpx; height: 56rpx; line-height: 56rpx; border-radius: 50%;
+  text-align: center;
+}
+.day-num { padding: 8rpx 0; }
+.dots { display: flex; gap: 4rpx; height: 12rpx; margin-top: 4rpx; }
+.dot { width: 8rpx; height: 8rpx; border-radius: 50%; }
+
+.legend {
+  display: flex; flex-wrap: wrap; gap: 24rpx;
+  padding: 24rpx 0; font-size: 22rpx; color: var(--text-secondary);
+}
+.lg-item { display: flex; align-items: center; gap: 8rpx; }
+.lg-dot { width: 12rpx; height: 12rpx; border-radius: 50%; }
+
+.today-section { margin-top: 32rpx; }
+.today-title { font-size: 28rpx; font-weight: 600; margin-bottom: 16rpx; }
+.event-card {
+  background: #fff; border-radius: 16rpx; padding: 24rpx;
+  display: flex; gap: 20rpx; margin-bottom: 16rpx;
+}
+.event-time { color: var(--text-secondary); font-size: 28rpx; min-width: 96rpx; }
+.event-body { flex: 1; }
+.event-title { font-size: 28rpx; font-weight: 500; }
+.event-desc { font-size: 24rpx; color: var(--text-secondary); margin-top: 8rpx; }

@@ -79,4 +79,5 @@ wsManager.unsubscribe(thread_id);
 - F1b ✅ API/Auth services 完成
 - F1c ✅ WS service 完成
 - F2 ✅ splash 启动页 + 手机号绑定页完成
-- F3-F10 待实现 (业务页)
+- F3 ✅ 日程 Tab（月视图 + 日视图）完成
+- F4-F10 待实现 (业务页)

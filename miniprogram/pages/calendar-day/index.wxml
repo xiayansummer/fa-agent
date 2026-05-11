@@ -1,0 +1,22 @@
+<view class="day-page">
+  <view class="header">
+    <view class="date">{{date}}</view>
+    <view class="hint">✦ Agent 已为你规划 {{events.length}} 项任务</view>
+  </view>
+
+  <view class="empty" wx:if="{{events.length === 0 && !loading}}">
+    今天没有 Agent 安排的任务
+  </view>
+
+  <view class="event-card" wx:for="{{events}}" wx:key="title">
+    <view class="event-head">
+      <view class="time">{{item.time}}</view>
+      <view class="tag" style="background: {{item.typeColor}}">{{item.typeLabel}}</view>
+    </view>
+    <view class="event-title">{{item.title}}</view>
+    <view class="event-desc">{{item.description}}</view>
+    <view class="action-btn" bindtap="onAction" data-event="{{item}}" style="background: {{item.typeColor}}">
+      {{item.action_label}} →
+    </view>
+  </view>
+</view>

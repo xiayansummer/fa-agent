@@ -1,3 +1,53 @@
-<view class="container">
-  <view class="placeholder">📅 日程 (F3 实现)</view>
+<view class="calendar">
+  <view class="header">
+    <view class="title">我的日程 ✦ AI 生成</view>
+    <view class="avatar" bindtap="goMe">我</view>
+  </view>
+
+  <view class="month-nav">
+    <view class="arrow" bindtap="prevMonth">‹</view>
+    <view class="month-label">{{monthLabel}}</view>
+    <view class="arrow" bindtap="nextMonth">›</view>
+  </view>
+
+  <view class="weekdays">
+    <view class="wd" wx:for="{{['日','一','二','三','四','五','六']}}" wx:key="*this">{{item}}</view>
+  </view>
+
+  <view class="days">
+    <view
+      wx:for="{{dayCells}}"
+      wx:key="date"
+      class="day {{item.inMonth ? '' : 'gray'}} {{item.isToday ? 'today' : ''}}"
+      data-date="{{item.date}}"
+      bindtap="onDayTap">
+      <view class="day-num">{{item.day}}</view>
+      <view class="dots">
+        <view
+          wx:for="{{item.colors}}"
+          wx:for-item="color"
+          wx:key="*this"
+          class="dot"
+          style="background: {{color}}"></view>
+      </view>
+    </view>
+  </view>
+
+  <view class="legend">
+    <view class="lg-item"><view class="lg-dot" style="background: #6B7AFF"></view>跟进</view>
+    <view class="lg-item"><view class="lg-dot" style="background: #10B981"></view>会议</view>
+    <view class="lg-item"><view class="lg-dot" style="background: #F59E0B"></view>里程碑</view>
+    <view class="lg-item"><view class="lg-dot" style="background: #8B5CF6"></view>推送</view>
+  </view>
+
+  <view class="today-section" wx:if="{{todayEvents.length > 0}}">
+    <view class="today-title">今日预览</view>
+    <view class="event-card" wx:for="{{todayEvents}}" wx:key="title">
+      <view class="event-time">{{item.time}}</view>
+      <view class="event-body">
+        <view class="event-title">{{item.title}}</view>
+        <view class="event-desc">{{item.description}}</view>
+      </view>
+    </view>
+  </view>
 </view>

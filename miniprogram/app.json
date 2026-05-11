@@ -4,7 +4,8 @@
     "pages/chat/index",
     "pages/investors/index",
     "pages/splash/index",
-    "pages/bind-phone/index"
+    "pages/bind-phone/index",
+    "pages/calendar-day/index"
   ],
   "window": {
     "backgroundTextStyle": "light",
