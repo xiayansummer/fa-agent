@@ -8,10 +8,29 @@ from agent.runner import run, resume
 from agent.events import subscribe
 from agent.state import AgentState, TaskType, IrAction
 from redis_client import get_redis
+from skills.claude_skill import _client
+from config import settings
 
 router = APIRouter()
 
 THREAD_OWNER_TTL = 3600  # max workflow + IR-review pause window
+
+_SYSTEM_PROMPT = """你是 FA Agent 的对话助手，帮助 IR（投资人关系经理）回答关于投资人、市场、跟进策略的问题。
+回答要简洁、具体、可操作。如果不确定具体投资人信息，直接说不知道，不要编造。"""
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []  # max 10, older first
+
+
+class ChatResponse(BaseModel):
+    reply: str
 
 
 class RunRequest(BaseModel):
@@ -130,3 +149,28 @@ async def submit_review(
     }
     background_tasks.add_task(resume, task_type, thread_id, ir_decision)
     return {"status": "resumed"}
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def free_chat(
+    body: ChatRequest,
+    current_ir: dict = Depends(get_current_ir),
+):
+    """Free-form chat with the AI. Stateless (no DB write). Pass history for multi-turn context."""
+    # Cap history at last 10 messages (defensive even if frontend respects limit)
+    history = body.history[-10:] if body.history else []
+
+    # Build OpenAI-format messages
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    for msg in history:
+        if msg.role in ("user", "assistant"):
+            messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": body.message})
+
+    response = await _client.chat.completions.create(
+        model=settings.ai_model,
+        max_tokens=1024,
+        temperature=0.5,
+        messages=messages,
+    )
+    return ChatResponse(reply=response.choices[0].message.content)
