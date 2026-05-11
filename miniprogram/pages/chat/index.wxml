@@ -15,6 +15,7 @@
           body="{{item.body}}"
           actions="{{item.actions}}"
           show-status="{{item.showStatus}}"
+          inline-editable="{{item.inlineEditable}}"
           bind:action="onCardAction" />
       </view>
     </block>

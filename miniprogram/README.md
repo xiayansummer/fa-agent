@@ -82,4 +82,5 @@ wsManager.unsubscribe(thread_id);
 - F3 ✅ 日程 Tab（月视图 + 日视图）完成
 - F4a ✅ 对话 Tab 骨架 + agent-card + thinking 组件完成
 - F4b ✅ 对话 Tab WS 集成 + Orchestrator 早安卡完成
-- F4c-F10 待实现 (业务页)
+- F4c ✅ 短内容内联审核（inlineEditable + review POST + IrAction 映射）完成
+- F5-F10 待实现 (业务页)

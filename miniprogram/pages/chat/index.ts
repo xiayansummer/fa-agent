@@ -13,6 +13,7 @@ interface Message {
   text?: string;
   threadId?: string;  // 关联的 thread_id（用于 review）
   thinkingLabel?: string;
+  inlineEditable?: boolean;  // 短内容才允许内联编辑
 }
 
 interface CalendarEvent {
@@ -190,6 +191,7 @@ Page<PageData, {}>({
       });
     } else if (event.type === 'waiting_review') {
       // thinking 卡 → agent-card with review actions
+      const isShort = (event.draft || '').length < 200;
       this._replaceMessage(thinkingId, {
         kind: 'agent_card',
         agent: 'content',
@@ -197,10 +199,11 @@ Page<PageData, {}>({
         body: event.draft,
         actions: [
           { action: 'approve', label: '通过', primary: true },
-          { action: 'modify', label: '调整' },
+          { action: 'modify', label: isShort ? '调整' : '展开编辑' },
           { action: 'reject', label: '拒绝' },
         ],
         threadId,
+        inlineEditable: isShort,
       });
     } else if (event.type === 'done') {
       this._replaceMessage(thinkingId, {
@@ -224,6 +227,7 @@ Page<PageData, {}>({
     } else if (event.type === 'snapshot') {
       // 重连 fallback
       if (event.status === 'waiting_review' && event.draft) {
+        const isShort = (event.draft || '').length < 200;
         this._replaceMessage(thinkingId, {
           kind: 'agent_card',
           agent: 'content',
@@ -231,10 +235,11 @@ Page<PageData, {}>({
           body: event.draft,
           actions: [
             { action: 'approve', label: '通过', primary: true },
-            { action: 'modify', label: '调整' },
+            { action: 'modify', label: isShort ? '调整' : '展开编辑' },
             { action: 'reject', label: '拒绝' },
           ],
           threadId,
+          inlineEditable: isShort,
         });
       } else if (event.status === 'done') {
         this._replaceMessage(thinkingId, {
@@ -261,8 +266,64 @@ Page<PageData, {}>({
     }
   },
 
-  onCardAction(e: WechatMiniprogram.CustomEvent<{ action: string }>) {
-    // F4c 实现真实 review POST
-    wx.showToast({ title: `action: ${e.detail.action}（F4c 实现）`, icon: 'none' });
+  async onCardAction(e: WechatMiniprogram.CustomEvent<{ action: string; final?: string }>) {
+    const { action, final } = e.detail;
+
+    if (action === 'view_calendar') {
+      wx.switchTab({ url: '/pages/calendar/index' });
+      return;
+    }
+
+    if (action === 'retry') {
+      wx.showToast({ title: '请重新发起任务', icon: 'none' });
+      return;
+    }
+
+    // approve / modify / reject
+    if (!['approve', 'modify', 'reject'].includes(action)) {
+      wx.showToast({ title: `未知动作: ${action}`, icon: 'none' });
+      return;
+    }
+
+    // 找到对应消息（遍历找最近一个有 threadId 且非 done 的 agent_card）
+    const msg = [...this.data.messages].reverse().find(
+      (m) => m.threadId && m.kind === 'agent_card' && !m.showStatus
+    );
+    if (!msg || !msg.threadId) {
+      wx.showToast({ title: '找不到关联会话', icon: 'none' });
+      return;
+    }
+
+    // 长内容点 modify（!inlineEditable），且没有 final（即第一次点，不是提交）
+    if (action === 'modify' && !final && msg.body && msg.body.length >= 200) {
+      // 长内容 → 弹 Modal（F10 实现）— 暂用 toast 占位
+      wx.showToast({ title: '长内容编辑（F10 实现）', icon: 'none' });
+      return;
+    }
+
+    // 映射到后端 IrAction 枚举
+    const actionMap: Record<string, string> = {
+      approve: 'approved',
+      modify: 'modified',
+      reject: 'rejected',
+    };
+
+    try {
+      const body: any = { action: actionMap[action] };
+      if (action === 'modify' && final !== undefined) {
+        body.final = final;
+      }
+      await api.post(`/api/agent/${msg.threadId}/review`, body);
+
+      // reject 立即更新 UI（approve/modify 等 WS done 推回）
+      if (action === 'reject') {
+        this._replaceMessage(msg.id, {
+          actions: [],
+          showStatus: '已拒绝',
+        });
+      }
+    } catch (err: any) {
+      wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
+    }
   },
 });

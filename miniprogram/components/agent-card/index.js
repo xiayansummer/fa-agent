@@ -8,15 +8,54 @@ Component({
     body: { type: String, value: '' },  // 卡片正文（普通文本）
     actions: {
       type: Array,
-      value: [],  // [{ label, type: 'approve' | 'modify' | 'reject', primary: bool }]
+      value: [],  // [{ label, action: 'approve' | 'modify' | 'reject', primary: bool }]
     },
     showStatus: { type: String, value: '' },  // '已通过' / '已拒绝' / ''
+    inlineEditable: { type: Boolean, value: false },  // 是否允许内联编辑
   },
-  data: {},
+  data: {
+    editing: false,
+    editText: '',
+    submitting: false,
+  },
+  observers: {
+    'body': function(newBody) {
+      if (!this.data.editing) this.setData({ editText: newBody });
+    },
+  },
   methods: {
     onAction(e) {
       const action = e.currentTarget.dataset.action;
+
+      if (action === 'modify' && this.data.inlineEditable) {
+        // 进入编辑模式
+        this.setData({ editing: true, editText: this.data.body });
+        return;
+      }
+
+      if (action === 'submit_modify') {
+        // 提交编辑后的内容
+        this.setData({ submitting: true });
+        this.triggerEvent('action', { action: 'modify', final: this.data.editText });
+        return;
+      }
+
+      if (action === 'cancel_modify') {
+        this.setData({ editing: false, editText: this.data.body });
+        return;
+      }
+
+      this.setData({ submitting: true });
       this.triggerEvent('action', { action });
+    },
+
+    onEditInput(e) {
+      this.setData({ editText: e.detail.value });
+    },
+
+    // 父组件可以调用 reset 重置 submitting 状态
+    resetSubmitting() {
+      this.setData({ submitting: false, editing: false });
     },
   },
 });
