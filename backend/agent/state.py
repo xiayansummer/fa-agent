@@ -15,6 +15,7 @@ class AgentState(TypedDict):
     meeting_id: Optional[str]
     audio_url: Optional[str]
     transcript: Optional[str]
+    tencent_meeting_id: Optional[str]  # 新加
 
     # Daily push inputs
     target_date: Optional[str]   # "2026-04-22"

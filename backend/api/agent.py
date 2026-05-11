@@ -38,6 +38,7 @@ class RunRequest(BaseModel):
     meeting_id: Optional[str] = None
     audio_url: Optional[str] = None
     transcript: Optional[str] = None
+    tencent_meeting_id: Optional[str] = None  # 新加
     investor_ids: Optional[list[int]] = None
     target_date: Optional[str] = None
     criteria: Optional[str] = None
@@ -66,6 +67,7 @@ async def start_workflow(
         "meeting_id": request.meeting_id,
         "audio_url": request.audio_url,
         "transcript": request.transcript,
+        "tencent_meeting_id": request.tencent_meeting_id,  # 新加
         "investor_ids": request.investor_ids,
         "investor_profiles": None,
         "target_date": request.target_date,

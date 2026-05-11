@@ -4,6 +4,7 @@ from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
+from agent.nodes.fetch_tencent_minutes import fetch_tencent_minutes_node
 from agent.runner import _checkpointer, register_graph
 from database import AsyncSessionLocal
 from harness.skill_registry import skill_registry
@@ -99,13 +100,15 @@ async def save_node(state: AgentState) -> dict:
 
 builder = StateGraph(AgentState)
 builder.add_node("fetch_profiles", fetch_profiles_node)
+builder.add_node("fetch_tencent_minutes", fetch_tencent_minutes_node)
 builder.add_node("transcribe", transcribe_node)
 builder.add_node("generate", generate_node)
 builder.add_node("review", review_node)
 builder.add_node("save", save_node)
 
 builder.add_edge(START, "fetch_profiles")
-builder.add_edge("fetch_profiles", "transcribe")
+builder.add_edge("fetch_profiles", "fetch_tencent_minutes")
+builder.add_edge("fetch_tencent_minutes", "transcribe")
 builder.add_edge("transcribe", "generate")
 builder.add_edge("generate", "review")
 builder.add_edge("review", "save")
