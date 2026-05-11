@@ -7,7 +7,7 @@ class IRUser(Base):
 
     id                              = Column(Integer, primary_key=True, autoincrement=True)
     name                            = Column(String(50), nullable=False)
-    phone                           = Column(String(20), unique=True)
+    phone                           = Column(String(20), unique=True, nullable=True)
     wechat_openid                   = Column(String(64), unique=True, nullable=True)
     role                            = Column(Enum("ir", "admin"), default="ir")
     is_active                       = Column(Boolean, default=True)
