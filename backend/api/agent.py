@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
 from auth.jwt import decode_token, get_current_ir
-from agent.runner import run, resume
+from agent.runner import run, resume, get_graph
 from agent.events import subscribe
 from agent.state import AgentState, TaskType, IrAction
 from redis_client import get_redis
@@ -149,6 +149,76 @@ async def submit_review(
     }
     background_tasks.add_task(resume, task_type, thread_id, ir_decision)
     return {"status": "resumed"}
+
+
+class StateResponse(BaseModel):
+    status: str  # "running" | "waiting_review" | "done" | "error"
+    # waiting_review fields
+    draft: Optional[str] = None
+    task_type: Optional[str] = None
+    # done fields
+    final: Optional[str] = None
+    ir_action: Optional[str] = None
+    # running field
+    current_node: Optional[str] = None
+    # error field
+    error: Optional[str] = None
+
+
+@router.get("/{thread_id}/state", response_model=StateResponse)
+async def get_thread_state(
+    thread_id: str,
+    current_ir: dict = Depends(get_current_ir),
+):
+    """Snapshot of workflow state — for WS reconnect recovery.
+    Schema mirrors WS event payloads so frontend can re-render directly."""
+    redis = await get_redis()
+
+    # Check ownership
+    owner = await redis.get(f"agent:thread:{thread_id}:owner")
+    if not owner:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    if str(owner) != str(current_ir["ir_id"]):
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    # Get task_type to know which graph to query
+    task_type = await redis.get(f"agent:thread:{thread_id}:type")
+    if not task_type:
+        # owner exists but type doesn't — workflow may have just started or was cleaned up
+        return StateResponse(status="running")
+
+    try:
+        graph = get_graph(task_type)
+    except KeyError:
+        return StateResponse(status="error", error=f"unknown task_type: {task_type}")
+
+    config = {"configurable": {"thread_id": thread_id}}
+    state = graph.get_state(config)
+    values = state.values or {}
+
+    # If next includes "review" node and draft is present → waiting_review
+    if state.next and "review" in state.next and values.get("draft"):
+        return StateResponse(
+            status="waiting_review",
+            draft=values.get("draft"),
+            task_type=task_type,
+        )
+
+    # If error in state values → error
+    if values.get("error"):
+        return StateResponse(status="error", error=values["error"])
+
+    # If next is empty → done
+    if not state.next:
+        return StateResponse(
+            status="done",
+            final=values.get("final"),
+            ir_action=values.get("ir_action"),
+        )
+
+    # Otherwise → running, indicate current/next node
+    current = values.get("__current_node__") or (next(iter(state.next)) if state.next else None)
+    return StateResponse(status="running", current_node=current)
 
 
 @router.post("/chat", response_model=ChatResponse)
