@@ -14,6 +14,8 @@ interface FormState {
 interface PageData {
   isEdit: boolean;
   investorId: number;
+  /** 从企名片搜索带过来的 person_id：表示"加入我的库" */
+  qmingpianPersonId: string;
   form: FormState;
   saving: boolean;
   industryOptions: string[];
@@ -27,6 +29,7 @@ Page<PageData, {}>({
   data: {
     isEdit: false,
     investorId: 0,
+    qmingpianPersonId: '',
     form: {
       name: '',
       agency: '',
@@ -42,13 +45,23 @@ Page<PageData, {}>({
     stageOptions: STAGE_OPTS,
   },
 
-  onLoad(opts: { id?: string }) {
+  onLoad(opts: { id?: string; qmingpian_person_id?: string; name?: string; agency?: string }) {
     if (opts.id) {
       const id = parseInt(opts.id);
       this.setData({ isEdit: true, investorId: id });
       this._load();
+      wx.setNavigationBarTitle({ title: '编辑投资人' });
+    } else if (opts.qmingpian_person_id) {
+      // 从企名片搜索"加入我的库"过来：预填 name/agency
+      this.setData({
+        qmingpianPersonId: opts.qmingpian_person_id,
+        'form.name': opts.name || '',
+        'form.agency': opts.agency || '',
+      });
+      wx.setNavigationBarTitle({ title: '加入我的库' });
+    } else {
+      wx.setNavigationBarTitle({ title: '新增投资人' });
     }
-    wx.setNavigationBarTitle({ title: opts.id ? '编辑投资人' : '新增投资人' });
   },
 
   async _load() {
@@ -112,6 +125,10 @@ Page<PageData, {}>({
         await api.put(`/api/investors/${this.data.investorId}`, payload);
         wx.showToast({ title: '已保存', icon: 'success' });
       } else {
+        // 加入我的库时带 qmingpian_person_id（跳过企名片 add）
+        if (this.data.qmingpianPersonId) {
+          payload.qmingpian_person_id = this.data.qmingpianPersonId;
+        }
         await api.post('/api/investors', payload);
         wx.showToast({ title: '已创建', icon: 'success' });
       }

@@ -8,11 +8,18 @@ from pydantic import BaseModel
 from database import get_db
 from models.investors import Investor
 from auth.jwt import get_current_ir
+from skills.qmingpian import (
+    qmingpian_search_person,
+    qmingpian_add_person,
+    qmingpian_edit_person,
+)
 
 router = APIRouter()
 
+
 class InvestorOut(BaseModel):
     id: int
+    qmingpian_person_id: Optional[str] = None
     name: str
     agency: Optional[str] = None
     position: Optional[str] = None
@@ -21,20 +28,39 @@ class InvestorOut(BaseModel):
     relationship_score: int = 0
     profile_notes: Optional[str] = None
     last_interaction_at: Optional[datetime] = None
+    birthday: Optional[date_type] = None
 
     model_config = {"from_attributes": True}
+
+
+class SearchHitOut(BaseModel):
+    """搜索结果条目：可能是本地已有的投资人（local_id 非 None），也可能仅在企名片存在。"""
+    qmingpian_person_id: str
+    name: str
+    agency: Optional[str] = None
+    local_id: Optional[int] = None   # 本地 fa_agent.investors.id；None 表示尚未加入本地库
+
 
 class InvestorListOut(BaseModel):
     items: list[InvestorOut]
     total: int
 
+
+class SearchListOut(BaseModel):
+    items: list[SearchHitOut]
+    total: int
+
+
 class InvestorCreate(BaseModel):
+    # 企名片必填
     name: str
-    agency: Optional[str] = None
+    agency: Optional[str] = ""  # 企名片 addPerson 要求 agency 必传，空字符串也可
+    # 企名片可选基本信息
     position: Optional[str] = None
     email: Optional[list] = None
     wechat: Optional[list] = None
     phone: Optional[list] = None
+    # 仅本地的业务画像
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     quota_range: Optional[str] = None
@@ -43,14 +69,19 @@ class InvestorCreate(BaseModel):
     birthday: Optional[date_type] = None
     join_agency_date: Optional[date_type] = None
     first_meeting_date: Optional[date_type] = None
+    # 如果用户从搜索结果"加入我的库"，传 person_id 跳过 addPerson
+    qmingpian_person_id: Optional[str] = None
+
 
 class InvestorUpdate(BaseModel):
+    # 企名片同步字段
     name: Optional[str] = None
     agency: Optional[str] = None
     position: Optional[str] = None
     email: Optional[list] = None
     wechat: Optional[list] = None
     phone: Optional[list] = None
+    # 仅本地字段
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     quota_range: Optional[str] = None
@@ -60,28 +91,83 @@ class InvestorUpdate(BaseModel):
     join_agency_date: Optional[date_type] = None
     first_meeting_date: Optional[date_type] = None
 
+
+def _first_or_empty(lst: Optional[list]) -> str:
+    if not lst:
+        return ""
+    return str(lst[0]) if lst[0] is not None else ""
+
+
+_QMINGPIAN_FIELDS = {"name", "agency", "position", "email", "wechat", "phone"}
+
+
 @router.get("", response_model=InvestorListOut)
 async def list_investors(
-    stage: Optional[str] = Query(None),
-    industry: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None, description="阶段筛选，匹配 stage_pref"),
+    industry: Optional[str] = Query(None, description="行业筛选，匹配 industry_tags"),
+    limit: int = Query(20, ge=1, le=100, description="返回条数，默认 Top 20"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_ir),
 ):
+    """
+    "我的库" 视图：本地 investors 表里 is_active=true 的投资人，按 last_interaction_at 倒序取 Top N。
+    搜索请用 /api/investors/search?q= 接口（调企名片）。
+    """
     stmt = select(Investor).where(Investor.is_active == True)
-    if q:
-        stmt = stmt.where(or_(
-            Investor.name.contains(q),
-            Investor.agency.contains(q),
-        ))
     if stage:
         stmt = stmt.where(Investor.stage_pref.contains(f'"{stage}"'))
     if industry:
         stmt = stmt.where(Investor.industry_tags.contains(f'"{industry}"'))
-
+    # MySQL 不支持 NULLS LAST，用 (col IS NULL) 排序实现：非空在前，再按 desc
+    stmt = stmt.order_by(
+        Investor.last_interaction_at.is_(None).asc(),
+        Investor.last_interaction_at.desc(),
+    ).limit(limit)
     result = await db.execute(stmt)
     investors = result.scalars().all()
     return InvestorListOut(items=list(investors), total=len(investors))
+
+
+@router.get("/search", response_model=SearchListOut)
+async def search_investors(
+    q: str = Query(..., min_length=1, description="搜索关键字（企名片全库）"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_ir),
+):
+    """
+    在企名片全库搜索。返回结果中标注哪些已加入本地库（local_id 非 null）。
+    点击未加入的条目时，前端调 POST /api/investors { qmingpian_person_id } 加入本地。
+    """
+    try:
+        hits = await qmingpian_search_person(q)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"企名片搜索失败: {e}")
+
+    # 查本地 investors 表里这些 person_id 已经有了哪些
+    person_ids = [h.get("person_id") for h in hits if h.get("person_id")]
+    local_map: dict[str, int] = {}
+    if person_ids:
+        local_result = await db.execute(
+            select(Investor.id, Investor.qmingpian_person_id)
+            .where(Investor.qmingpian_person_id.in_(person_ids))
+            .where(Investor.is_active == True)
+        )
+        for row in local_result.all():
+            local_map[row.qmingpian_person_id] = row.id
+
+    items = []
+    for h in hits:
+        pid = h.get("person_id")
+        if not pid:
+            continue
+        items.append(SearchHitOut(
+            qmingpian_person_id=pid,
+            name=h.get("name", ""),
+            agency=h.get("agency"),
+            local_id=local_map.get(pid),
+        ))
+    return SearchListOut(items=items, total=len(items))
+
 
 @router.get("/{investor_id}", response_model=InvestorOut)
 async def get_investor(
@@ -95,17 +181,70 @@ async def get_investor(
         raise HTTPException(status_code=404, detail="投资人不存在")
     return investor
 
+
 @router.post("", response_model=InvestorOut)
 async def create_investor(
     body: InvestorCreate,
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_ir),
 ):
-    investor = Investor(**body.model_dump())
+    """
+    新增：
+    - 若传了 qmingpian_person_id（来自搜索结果），跳过 addPerson，直接本地建关联记录；
+    - 否则先调企名片 addPerson 拿 person_id，再本地建。
+    重名（已有同 person_id 的本地记录）→ 400。
+    """
+    person_id = body.qmingpian_person_id
+
+    if person_id:
+        # 检查本地是否已有
+        existing = await db.execute(
+            select(Investor).where(Investor.qmingpian_person_id == person_id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="该投资人已在你的库中")
+    else:
+        # 调企名片新增
+        try:
+            res = await qmingpian_add_person(
+                name=body.name,
+                agency=body.agency or "",
+                phone=_first_or_empty(body.phone),
+                wechat=_first_or_empty(body.wechat),
+                email=_first_or_empty(body.email),
+                position=body.position or "",
+            )
+            person_id = res.get("person_id")
+            if not person_id:
+                raise HTTPException(status_code=502, detail=f"企名片未返回 person_id: {res}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"企名片新增失败: {e}")
+
+    # 本地插入（含扩展字段）
+    investor = Investor(
+        qmingpian_person_id=person_id,
+        name=body.name,
+        agency=body.agency,
+        position=body.position,
+        email=body.email,
+        wechat=body.wechat,
+        phone=body.phone,
+        industry_tags=body.industry_tags,
+        stage_pref=body.stage_pref,
+        quota_range=body.quota_range,
+        relationship_score=body.relationship_score,
+        profile_notes=body.profile_notes,
+        birthday=body.birthday,
+        join_agency_date=body.join_agency_date,
+        first_meeting_date=body.first_meeting_date,
+    )
     db.add(investor)
     await db.commit()
     await db.refresh(investor)
     return investor
+
 
 @router.put("/{investor_id}", response_model=InvestorOut)
 async def update_investor(
@@ -114,16 +253,41 @@ async def update_investor(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_ir),
 ):
+    """
+    编辑：
+    - 同步基本信息（name/agency/position/phone/wechat/email）到企名片（若有 person_id）;
+    - 扩展字段（关系值/标签/备注/生日等）写本地。
+    """
     result = await db.execute(select(Investor).where(Investor.id == investor_id))
     investor = result.scalar_one_or_none()
     if not investor:
         raise HTTPException(status_code=404, detail="投资人不存在")
+
     updates = body.model_dump(exclude_unset=True)
+
+    # 1) 同步基本信息到企名片
+    qmingpian_changes = {k: v for k, v in updates.items() if k in _QMINGPIAN_FIELDS}
+    if qmingpian_changes and investor.qmingpian_person_id:
+        try:
+            await qmingpian_edit_person(
+                person_id=investor.qmingpian_person_id,
+                name=qmingpian_changes.get("name") or "",
+                agency=qmingpian_changes.get("agency") or "",
+                phone=_first_or_empty(qmingpian_changes.get("phone")),
+                wechat=_first_or_empty(qmingpian_changes.get("wechat")),
+                email=_first_or_empty(qmingpian_changes.get("email")),
+                position=qmingpian_changes.get("position") or "",
+            )
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"企名片更新失败: {e}")
+
+    # 2) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
     for field, value in updates.items():
         setattr(investor, field, value)
     await db.commit()
     await db.refresh(investor)
     return investor
+
 
 @router.delete("/{investor_id}")
 async def delete_investor(
@@ -131,6 +295,9 @@ async def delete_investor(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_ir),
 ):
+    """
+    软删除（仅本地隐藏，企名片记录不动）。
+    """
     result = await db.execute(select(Investor).where(Investor.id == investor_id))
     investor = result.scalar_one_or_none()
     if not investor or not investor.is_active:

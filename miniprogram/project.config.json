@@ -1,7 +1,7 @@
 {
-  "appid": "wxTESTAPPID000000000",
+  "appid": "wxef675e9b29412db2",
   "compileType": "miniprogram",
-  "libVersion": "3.0.0",
+  "libVersion": "3.16.0",
   "miniprogramRoot": "./",
   "projectname": "fa-agent",
   "setting": {
@@ -10,14 +10,34 @@
     "postcss": true,
     "minified": true,
     "newFeature": true,
-    "useCompilerPlugins": ["typescript"],
+    "useCompilerPlugins": [
+      "typescript"
+    ],
     "babelSetting": {
       "ignore": [],
       "disablePlugins": [],
       "outputPath": ""
-    }
+    },
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true
   },
   "compileTrick": {
     "skipFirstUploadCheck": true
-  }
+  },
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {}
 }

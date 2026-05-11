@@ -7,14 +7,16 @@
   <view class="search-bar">
     <input
       class="search-input"
-      placeholder="搜索投资人、机构..."
+      placeholder="搜索企名片全库..."
       value="{{search}}"
       bindinput="onSearchInput"
       bindconfirm="onSearchConfirm"
       confirm-type="search" />
+    <view wx:if="{{inSearchMode}}" class="search-clear" bindtap="onSearchClear">✕</view>
   </view>
 
-  <scroll-view scroll-x class="tags-row">
+  <!-- 标签筛选只在非搜索模式显示 -->
+  <scroll-view wx:if="{{!inSearchMode}}" scroll-x class="tags-row">
     <view
       wx:for="{{allTags}}"
       wx:key="*this"
@@ -25,7 +27,37 @@
     </view>
   </scroll-view>
 
-  <view class="list">
+  <!-- 搜索模式：显示企名片搜索结果 -->
+  <view wx:if="{{inSearchMode}}" class="list">
+    <view class="search-hint">企名片全库结果：</view>
+    <view
+      wx:for="{{searchHits}}"
+      wx:key="qmingpian_person_id"
+      class="card hit-card {{item.isLocal ? 'is-local' : ''}}"
+      data-hit="{{item}}"
+      bindtap="onHitTap">
+      <view class="avatar avatar-0">{{item.firstLetter}}</view>
+      <view class="info">
+        <view class="row1">
+          <view class="name">{{item.name}}</view>
+          <view wx:if="{{item.isLocal}}" class="badge in-lib">在我的库</view>
+          <view wx:else class="badge ext">企名片</view>
+        </view>
+        <view class="row2">{{item.agencyOrEmpty}}</view>
+      </view>
+      <view wx:if="{{!item.isLocal}}" class="quick-add {{adding === item.qmingpian_person_id ? 'busy' : ''}}"
+            data-hit="{{item}}"
+            catchtap="onQuickAdd">
+        {{adding === item.qmingpian_person_id ? '...' : '+ 加入'}}
+      </view>
+    </view>
+    <view wx:if="{{searchHits.length === 0 && !loading}}" class="empty">
+      企名片未找到匹配的人，可以「+ 新增」直接录入
+    </view>
+  </view>
+
+  <!-- 非搜索模式：本地库列表 -->
+  <view wx:else class="list">
     <view
       wx:for="{{investors}}"
       wx:key="id"
@@ -46,11 +78,11 @@
     </view>
 
     <view wx:if="{{investors.length === 0 && !loading}}" class="empty">
-      ✦ AI 还没匹配到投资人，请先导入或同步
+      还没有关注的投资人，搜索企名片 「+ 加入我的库」
     </view>
   </view>
 
-  <view class="footer" wx:if="{{investors.length > 0}}">
-    共 {{investors.length}} 位投资人 · ✦ AI 已按关系热度排序
+  <view wx:if="{{!inSearchMode && investors.length > 0}}" class="footer">
+    最近接触 Top {{investors.length}} · ✦ 按上次沟通时间排序
   </view>
 </view>

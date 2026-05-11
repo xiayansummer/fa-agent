@@ -6,6 +6,7 @@ class Investor(Base):
     __tablename__ = "investors"
 
     id                  = Column(Integer, primary_key=True, autoincrement=True)
+    qmingpian_person_id = Column(String(64), unique=True, nullable=True)  # 企名片主键
     name                = Column(String(100), nullable=False)
     agency              = Column(String(100))
     position            = Column(String(100))
