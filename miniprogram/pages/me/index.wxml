@@ -1,0 +1,34 @@
+<view class="me" wx:if="{{user}}">
+  <view class="profile">
+    <view class="avatar">{{user.name[0]}}</view>
+    <view class="info">
+      <view class="name">{{user.name}}</view>
+      <view class="role">{{user.role === 'admin' ? '管理员' : 'IR'}}{{user.phone ? ' · ' + user.phone : ''}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="item" bindtap="goTencentSetup">
+      <view class="item-icon">🎯</view>
+      <view class="item-label">腾讯会议接入</view>
+      <view class="item-value {{user.tencent_bound ? 'bound' : 'unbound'}}">
+        {{user.tencent_bound ? '已配置' : '未配置'}}
+      </view>
+      <view class="item-arrow">›</view>
+    </view>
+
+    <view class="item" bindtap="goDrafts">
+      <view class="item-icon">📋</view>
+      <view class="item-label">我的草稿历史</view>
+      <view class="item-value"></view>
+      <view class="item-arrow">›</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="item logout" bindtap="onLogout">
+      <view class="item-icon">⚙️</view>
+      <view class="item-label">退出登录</view>
+    </view>
+  </view>
+</view>

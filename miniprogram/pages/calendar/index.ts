@@ -150,7 +150,6 @@ Page<CalendarData, {}>({
   },
 
   goMe() {
-    // F9 实现
-    wx.showToast({ title: '我的页面（F9 实现）', icon: 'none' });
+    wx.navigateTo({ url: '/pages/me/index' });
   },
 });

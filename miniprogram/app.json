@@ -9,7 +9,10 @@
     "pages/investor-detail/index",
     "pages/investor-edit/index",
     "pages/interaction-new/index",
-    "pages/meeting-prepare/index"
+    "pages/meeting-prepare/index",
+    "pages/me/index",
+    "pages/tencent-setup/index",
+    "pages/drafts/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

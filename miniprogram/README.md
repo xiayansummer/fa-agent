@@ -84,4 +84,8 @@ wsManager.unsubscribe(thread_id);
 - F4b ✅ 对话 Tab WS 集成 + Orchestrator 早安卡完成
 - F4c ✅ 短内容内联审核（inlineEditable + review POST + IrAction 映射）完成
 - F5 ✅ 投资人 Tab 列表 + 详情页完成
-- F6-F10 待实现 (业务页)
+- F6 ✅ 投资人编辑/新建页完成
+- F7 ✅ 手动互动记录页完成
+- F8 ✅ 会议准备页（3 种模式）完成
+- F9 ✅ 我页 + 腾讯会议接入设置页完成
+- F10 待实现 (长内容审核 + 草稿历史)

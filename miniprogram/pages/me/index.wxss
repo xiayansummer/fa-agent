@@ -1,0 +1,40 @@
+page { background: var(--bg-base); }
+.me { padding: 32rpx; min-height: 100vh; }
+
+.profile {
+  background: linear-gradient(135deg, #6B7AFF 0%, #8B5CF6 100%);
+  color: #fff;
+  border-radius: 16rpx;
+  padding: 40rpx 32rpx;
+  display: flex; align-items: center; gap: 24rpx;
+  margin-bottom: 24rpx;
+}
+.avatar {
+  width: 100rpx; height: 100rpx; border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 44rpx; font-weight: 700;
+}
+.name { font-size: 36rpx; font-weight: 700; }
+.role { font-size: 26rpx; opacity: 0.85; margin-top: 8rpx; }
+
+.section {
+  background: #fff;
+  border-radius: 16rpx;
+  margin-bottom: 16rpx;
+  overflow: hidden;
+}
+.item {
+  display: flex; align-items: center; gap: 16rpx;
+  padding: 28rpx 24rpx;
+  border-bottom: 1rpx solid var(--border-light);
+  font-size: 28rpx;
+}
+.item:last-child { border-bottom: none; }
+.item-icon { font-size: 32rpx; }
+.item-label { flex: 1; }
+.item-value { color: var(--text-secondary); font-size: 26rpx; }
+.item-value.bound { color: #16a34a; }
+.item-value.unbound { color: #f59e0b; }
+.item-arrow { color: var(--text-secondary); font-size: 28rpx; }
+.item.logout { color: #DC2626; }
