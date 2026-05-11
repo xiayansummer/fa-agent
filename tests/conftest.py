@@ -65,3 +65,20 @@ async def override_db(db_session):
     app.dependency_overrides[get_db] = _override
     yield
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def authed_client(override_db, db_session):
+    """A test client with a JWT-authenticated IR user. Returns (client, user)."""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from auth.jwt import create_token
+    from models.ir_users import IRUser
+
+    user = IRUser(name="Test IR", phone="13800000001", role="ir", wechat_openid="test_openid_xxx")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    token = create_token(user.id, user.role)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as client:
+        yield client, user
