@@ -1,0 +1,42 @@
+<view class="detail" wx:if="{{investor}}">
+  <view class="header">
+    <view class="avatar">{{investor.name[0]}}</view>
+    <view class="info">
+      <view class="name">{{investor.name}}</view>
+      <view class="position">{{investor.agency || ''}}{{investor.position ? ' · ' + investor.position : ''}}</view>
+      <view class="score">
+        关系值：
+        <text wx:for="{{[1,2,3,4,5]}}" wx:key="*this" class="dot {{item <= investor.relationship_score ? 'on' : ''}}">●</text>
+      </view>
+    </view>
+    <view class="edit-btn" bindtap="onEdit">编辑</view>
+  </view>
+
+  <view class="tag-row" wx:if="{{investor.industry_tags && investor.industry_tags.length > 0}}">
+    <view wx:for="{{investor.industry_tags}}" wx:key="*this" class="tag">{{item}}</view>
+  </view>
+
+  <view class="section" wx:if="{{profileLines.length > 0}}">
+    <view class="section-title">AI 偏好画像 ✦</view>
+    <view wx:for="{{profileLines}}" wx:key="*this" class="profile-line">{{item}}</view>
+  </view>
+
+  <view class="section">
+    <view class="section-head">
+      <view class="section-title">近期互动</view>
+      <view class="add-link" bindtap="onAddInteraction">+ 记互动</view>
+    </view>
+    <view wx:if="{{interactions.length === 0}}" class="empty">还没有互动记录</view>
+    <view wx:for="{{interactions}}" wx:key="id" class="interaction">
+      <view class="i-head">
+        <view class="i-date">[{{item.dateLabel}}]</view>
+        <view class="i-type">{{item.typeLabel}}</view>
+      </view>
+      <view class="i-summary">{{item.summary || '（无摘要）'}}</view>
+    </view>
+  </view>
+
+  <view class="bottom-bar">
+    <view class="ask-btn" bindtap="onAskAgent">✦ 问 Agent 关于 {{investor.name}}</view>
+  </view>
+</view>

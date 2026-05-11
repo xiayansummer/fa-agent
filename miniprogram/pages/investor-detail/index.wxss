@@ -1,0 +1,74 @@
+page { background: var(--bg-base); }
+.detail { padding: 0 0 200rpx; min-height: 100vh; }
+
+.header {
+  background: linear-gradient(135deg, #6B7AFF 0%, #8B5CF6 100%);
+  color: #fff;
+  padding: 64rpx 32rpx;
+  display: flex; align-items: center; gap: 32rpx;
+}
+.avatar {
+  width: 120rpx; height: 120rpx; border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 56rpx; font-weight: 700;
+}
+.info { flex: 1; }
+.name { font-size: 40rpx; font-weight: 700; }
+.position { font-size: 26rpx; opacity: 0.9; margin-top: 8rpx; }
+.score { font-size: 24rpx; margin-top: 16rpx; opacity: 0.9; }
+.dot { color: rgba(255,255,255,0.4); margin-right: 4rpx; }
+.dot.on { color: #fff; }
+.edit-btn {
+  font-size: 26rpx;
+  padding: 8rpx 16rpx;
+  border: 1rpx solid rgba(255,255,255,0.5);
+  border-radius: 8rpx;
+}
+
+.tag-row { display: flex; gap: 12rpx; padding: 24rpx 32rpx; flex-wrap: wrap; }
+.tag {
+  background: #e0e7ff; color: #6B7AFF;
+  padding: 6rpx 16rpx; border-radius: 8rpx;
+  font-size: 22rpx;
+}
+
+.section {
+  background: #fff;
+  margin: 16rpx 32rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+}
+.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
+.section-title { font-size: 28rpx; font-weight: 600; color: var(--text-primary); }
+.add-link { font-size: 24rpx; color: var(--agent-orchestrator); }
+
+.profile-line {
+  font-size: 26rpx; line-height: 1.7; color: var(--text-primary);
+  padding: 8rpx 0;
+}
+
+.interaction { padding: 16rpx 0; border-bottom: 1rpx solid var(--border-light); }
+.interaction:last-child { border-bottom: none; }
+.i-head { display: flex; gap: 12rpx; margin-bottom: 6rpx; }
+.i-date { color: var(--text-secondary); font-size: 22rpx; font-family: monospace; }
+.i-type { font-size: 22rpx; color: var(--agent-content); }
+.i-summary { font-size: 26rpx; line-height: 1.6; }
+
+.empty { text-align: center; padding: 32rpx 0; color: var(--text-secondary); font-size: 24rpx; }
+
+.bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: #fff;
+  padding: 24rpx 32rpx;
+  border-top: 1rpx solid var(--border-light);
+}
+.ask-btn {
+  background: var(--agent-orchestrator);
+  color: #fff;
+  padding: 20rpx 0;
+  border-radius: 12rpx;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 600;
+}

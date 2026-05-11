@@ -1,3 +1,56 @@
-<view class="container">
-  <view class="placeholder">👥 投资人 (F5 实现)</view>
+<view class="investors">
+  <view class="header">
+    <view class="title">投资人库</view>
+    <view class="add-btn" bindtap="onAdd">+ 新增</view>
+  </view>
+
+  <view class="search-bar">
+    <input
+      class="search-input"
+      placeholder="搜索投资人、机构..."
+      value="{{search}}"
+      bindinput="onSearchInput"
+      bindconfirm="onSearchConfirm"
+      confirm-type="search" />
+  </view>
+
+  <scroll-view scroll-x class="tags-row">
+    <view
+      wx:for="{{allTags}}"
+      wx:key="*this"
+      class="tag {{selectedTags.indexOf(item) >= 0 ? 'selected' : ''}}"
+      data-tag="{{item}}"
+      bindtap="onTagTap">
+      {{item}}{{selectedTags.indexOf(item) >= 0 ? ' ✓' : ''}}
+    </view>
+  </scroll-view>
+
+  <view class="list">
+    <view
+      wx:for="{{investors}}"
+      wx:key="id"
+      class="card"
+      data-id="{{item.id}}"
+      bindtap="onInvestorTap">
+      <view class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
+      <view class="info">
+        <view class="row1">
+          <view class="name">{{item.name}}</view>
+          <view class="last">{{item.lastInteractionLabel}}</view>
+        </view>
+        <view class="row2">{{item.agencyPosition || '—'}}</view>
+        <view class="tags">
+          <view wx:for="{{item.industry_tags}}" wx:for-item="t" wx:key="*this" class="mini-tag">{{t}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{investors.length === 0 && !loading}}" class="empty">
+      ✦ AI 还没匹配到投资人，请先导入或同步
+    </view>
+  </view>
+
+  <view class="footer" wx:if="{{investors.length > 0}}">
+    共 {{investors.length}} 位投资人 · ✦ AI 已按关系热度排序
+  </view>
 </view>
