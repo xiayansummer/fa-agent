@@ -36,4 +36,6 @@ class Settings(BaseSettings):
     qiniu_region: str = "z0"  # 华东-浙江
     qiniu_domain: str = ""    # bound CDN domain for downloads, e.g. https://files.example.com
 
+    token_encrypt_key: str  # Fernet key (44 base64 chars); see .env.example for generation
+
 settings = Settings()
