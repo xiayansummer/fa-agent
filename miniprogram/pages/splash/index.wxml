@@ -2,5 +2,11 @@
   <view class="logo">FA</view>
   <view class="title">你的 IR 工作台</view>
   <view class="subtitle">由 4 个 Agent 协同完成</view>
-  <button class="enter-btn" bindtap="onEnter">进入工作台 →</button>
+  <view class="desc">Orchestrator 每日为你规划日程，名单/内容/触达 Agent 主动推送草稿，你只需在对话中一键审核。</view>
+
+  <button class="enter-btn" bindtap="onEnter" loading="{{loading}}" disabled="{{loading}}">
+    {{loading ? '登录中...' : '进入工作台 →'}}
+  </button>
+
+  <view wx:if="{{error}}" class="error">{{error}}</view>
 </view>

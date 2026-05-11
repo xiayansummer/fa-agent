@@ -12,11 +12,26 @@
   line-height: 100rpx;
   font-weight: 700;
   margin: 0 auto 60rpx;
+  font-size: 40rpx;
 }
 .title { font-size: 48rpx; font-weight: 700; }
-.subtitle { font-size: 28rpx; opacity: 0.8; margin-top: 20rpx; }
+.subtitle { font-size: 28rpx; opacity: 0.9; margin-top: 20rpx; }
+.desc {
+  font-size: 26rpx;
+  opacity: 0.75;
+  margin-top: 60rpx;
+  line-height: 1.8;
+  text-align: left;
+}
 .enter-btn {
   margin-top: 100rpx;
   background: #fff;
   color: #6B7AFF;
+  font-weight: 600;
+  border-radius: 12rpx;
+}
+.error {
+  margin-top: 30rpx;
+  color: #FFB6C1;
+  font-size: 26rpx;
 }

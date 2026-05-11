@@ -1,0 +1,21 @@
+<view class="bind">
+  <view class="title">首次使用，请绑定手机号</view>
+  <view class="hint">
+    你的手机号需要和管理员录入的一致才能进入系统。
+  </view>
+
+  <button
+    class="bind-btn"
+    open-type="getPhoneNumber"
+    bindgetphonenumber="onGetPhone"
+    loading="{{loading}}"
+    disabled="{{loading}}">
+    📱 微信授权获取手机号
+  </button>
+
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+
+  <view class="contact">
+    找不到匹配的账号？请联系管理员开通。
+  </view>
+</view>

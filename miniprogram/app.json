@@ -3,7 +3,8 @@
     "pages/calendar/index",
     "pages/chat/index",
     "pages/investors/index",
-    "pages/splash/index"
+    "pages/splash/index",
+    "pages/bind-phone/index"
   ],
   "window": {
     "backgroundTextStyle": "light",
