@@ -8,7 +8,8 @@
     "pages/calendar-day/index",
     "pages/investor-detail/index",
     "pages/investor-edit/index",
-    "pages/interaction-new/index"
+    "pages/interaction-new/index",
+    "pages/meeting-prepare/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

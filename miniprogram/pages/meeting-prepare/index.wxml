@@ -1,0 +1,48 @@
+<view class="page">
+  <view class="title">选择音频/文字来源</view>
+
+  <view class="mode-card" bindtap="onTencentTap">
+    <view class="mode-icon">🎯</view>
+    <view class="mode-body">
+      <view class="mode-title">从腾讯会议拉取</view>
+      <view class="mode-desc">需先在「我」配置腾讯会议接入</view>
+    </view>
+    <view class="mode-arrow">{{loadingTencent ? '...' : '→'}}</view>
+  </view>
+
+  <view class="mode-card" bindtap="onUploadTap">
+    <view class="mode-icon">📎</view>
+    <view class="mode-body">
+      <view class="mode-title">上传音频文件</view>
+      <view class="mode-desc">支持 mp3/m4a/wav/aac，最大 200MB</view>
+    </view>
+    <view class="mode-arrow">→</view>
+  </view>
+
+  <view class="mode-card paste-card">
+    <view class="mode-row" bindtap="togglePaste">
+      <view class="mode-icon">✍️</view>
+      <view class="mode-body">
+        <view class="mode-title">粘贴文字稿</view>
+        <view class="mode-desc">⚠️ 长于 5000 字建议改用音频或 PC 端上传</view>
+      </view>
+      <view class="mode-arrow">{{showPaste ? '↑' : '↓'}}</view>
+    </view>
+    <view wx:if="{{showPaste}}" class="paste-area">
+      <textarea
+        class="paste-textarea"
+        value="{{pasteText}}"
+        bindinput="onPasteInput"
+        placeholder="粘贴会议文字稿..."
+        auto-height
+        maxlength="-1" />
+      <view class="paste-submit {{loading ? 'disabled' : ''}}" bindtap="{{loading ? '' : 'onSubmitPaste'}}">
+        {{loading ? '提交中...' : '生成纪要 →'}}
+      </view>
+    </view>
+  </view>
+
+  <view class="hint">
+    生成后会跳转到对话页，Agent 将实时显示处理进度。
+  </view>
+</view>
