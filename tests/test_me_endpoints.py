@@ -1,7 +1,7 @@
 import pytest
 import os
 import sys
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
@@ -93,3 +93,84 @@ async def test_post_tencent_test_invalid(authed_client, mocker):
     data = response.json()
     assert data["ok"] is False
     assert data["detail"] != ""
+
+
+def _make_mock_redis(cached_value=None):
+    """Return a mock Redis client that simulates get/setex for has_rec cache."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=cached_value)
+    mock_redis.setex = AsyncMock()
+    return mock_redis
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_meetings_no_token_returns_422(authed_client, db_session):
+    """User without a tencent token → GET /tencent/meetings → 422."""
+    client, user = authed_client
+    # Ensure no token is set
+    user.tencent_meeting_token_encrypted = None
+    await db_session.commit()
+    response = await client.get("/api/me/tencent/meetings")
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_meetings_ended_with_recording(authed_client, db_session, mocker):
+    """Ended meeting with a recording → has_recording == True."""
+    from services import crypto_service
+
+    client, user = authed_client
+    user.tencent_meeting_token_encrypted = crypto_service.encrypt("test_token")
+    await db_session.commit()
+
+    raw = [{"meeting_id": "m1", "subject": "S", "start_time": "2026-05-01T09:00:00", "end_time": "2026-05-01T10:00:00"}]
+    mocker.patch("api.me.TencentMeetingClient.list_ended_meetings", AsyncMock(return_value=raw))
+    mocker.patch("api.me.TencentMeetingClient.get_records_list", AsyncMock(return_value=[{"record_file_id": "r1"}]))
+    mock_redis = _make_mock_redis(cached_value=None)  # no cache
+    mocker.patch("api.me.get_redis", AsyncMock(return_value=mock_redis))
+
+    response = await client.get("/api/me/tencent/meetings")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["meetings"]) == 1
+    assert data["meetings"][0]["has_recording"] is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_meetings_no_recording(authed_client, db_session, mocker):
+    """Ended meeting with no recordings → has_recording == False."""
+    from services import crypto_service
+
+    client, user = authed_client
+    user.tencent_meeting_token_encrypted = crypto_service.encrypt("test_token")
+    await db_session.commit()
+
+    raw = [{"meeting_id": "m2", "subject": "S", "start_time": "2026-05-01T09:00:00", "end_time": "2026-05-01T10:00:00"}]
+    mocker.patch("api.me.TencentMeetingClient.list_ended_meetings", AsyncMock(return_value=raw))
+    mocker.patch("api.me.TencentMeetingClient.get_records_list", AsyncMock(return_value=[]))
+    mock_redis = _make_mock_redis(cached_value=None)
+    mocker.patch("api.me.get_redis", AsyncMock(return_value=mock_redis))
+
+    response = await client.get("/api/me/tencent/meetings")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["meetings"]) == 1
+    assert data["meetings"][0]["has_recording"] is False
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_meetings_token_expired(authed_client, db_session, mocker):
+    """Expired tencent token → list_ended_meetings raises TencentAuthError → 401."""
+    from services import crypto_service
+    from services.tencent_meeting import TencentAuthError
+
+    client, user = authed_client
+    user.tencent_meeting_token_encrypted = crypto_service.encrypt("expired_token")
+    await db_session.commit()
+
+    mocker.patch("api.me.TencentMeetingClient.list_ended_meetings", AsyncMock(side_effect=TencentAuthError("expired")))
+    mock_redis = _make_mock_redis(cached_value=None)
+    mocker.patch("api.me.get_redis", AsyncMock(return_value=mock_redis))
+
+    response = await client.get("/api/me/tencent/meetings")
+    assert response.status_code == 401

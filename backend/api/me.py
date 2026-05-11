@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
+from datetime import datetime, timedelta
 from database import get_db
 from models.ir_users import IRUser
 from auth.jwt import get_current_ir
 from services import crypto_service
 from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
+from redis_client import get_redis
 
 router = APIRouter()
 
@@ -82,3 +84,78 @@ async def test_tencent_token(
         ok=ok,
         detail="" if ok else "token 无效或已过期",
     )
+
+
+class TencentMeetingItem(BaseModel):
+    meeting_id: str
+    subject: str
+    start_time: str
+    end_time: str
+    has_recording: bool
+
+class TencentMeetingsResponse(BaseModel):
+    meetings: list[TencentMeetingItem]
+
+
+@router.get("/tencent/meetings", response_model=TencentMeetingsResponse)
+async def list_tencent_meetings(
+    status: Literal["ended", "upcoming"] = "ended",
+    days: int = 31,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """从腾讯会议拉取 IR 的会议列表，含 has_recording 检查（Redis 5min 缓存）。"""
+    # 解密 token
+    result = await db.execute(select(IRUser).where(IRUser.id == current_ir["ir_id"]))
+    user = result.scalar_one_or_none()
+    if not user or not user.tencent_meeting_token_encrypted:
+        raise HTTPException(status_code=422, detail="请先在「我」-「腾讯会议接入」配置 token")
+
+    try:
+        token = crypto_service.decrypt(user.tencent_meeting_token_encrypted)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="token 解密失败，请重新配置")
+
+    client = TencentMeetingClient(token=token)
+
+    try:
+        if status == "ended":
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=days)
+            raw_meetings = await client.list_ended_meetings(
+                start_time=start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                end_time=end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        else:
+            raw_meetings = await client.list_upcoming_meetings()
+    except TencentAuthError:
+        raise HTTPException(status_code=401, detail="腾讯会议 token 已失效，请重新配置")
+    except TencentToolError as e:
+        raise HTTPException(status_code=502, detail=f"腾讯会议 API 错误: {e}")
+
+    # has_recording 检查（Redis 缓存 5 分钟）
+    redis = await get_redis()
+    meetings = []
+    for m in raw_meetings:
+        meeting_id = str(m.get("meeting_id", ""))
+        cache_key = f"tencent:has_rec:{meeting_id}"
+        cached = await redis.get(cache_key)
+        if cached is not None:
+            has_rec = cached == "1"
+        else:
+            try:
+                records = await client.get_records_list(meeting_id)
+                has_rec = len(records) > 0
+            except TencentToolError:
+                has_rec = False
+            await redis.setex(cache_key, 300, "1" if has_rec else "0")
+
+        meetings.append(TencentMeetingItem(
+            meeting_id=meeting_id,
+            subject=m.get("subject", ""),
+            start_time=m.get("start_time", ""),
+            end_time=m.get("end_time", ""),
+            has_recording=has_rec,
+        ))
+
+    return TencentMeetingsResponse(meetings=meetings)
