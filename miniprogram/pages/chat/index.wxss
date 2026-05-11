@@ -1,2 +1,39 @@
-.container { padding: 40rpx; }
-.placeholder { text-align: center; color: #999; padding: 80rpx 0; }
+page { background: var(--bg-base); }
+.chat {
+  display: flex; flex-direction: column;
+  min-height: 100vh;
+  padding-bottom: 120rpx;
+}
+.messages { flex: 1; padding: 32rpx; }
+
+.user-bubble {
+  align-self: flex-end;
+  background: var(--agent-orchestrator); color: #fff;
+  padding: 16rpx 24rpx; border-radius: 16rpx;
+  max-width: 80%;
+  margin: 16rpx 0 16rpx auto;
+  font-size: 28rpx;
+  line-height: 1.6;
+  display: inline-block;
+}
+
+.input-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: #fff; padding: 20rpx 24rpx;
+  display: flex; gap: 16rpx;
+  border-top: 1rpx solid var(--border-light);
+  z-index: 10;
+}
+.input {
+  flex: 1; height: 72rpx;
+  background: #f5f5f7; border-radius: 36rpx;
+  padding: 0 24rpx; font-size: 28rpx;
+}
+.send-btn {
+  background: var(--agent-orchestrator);
+  color: #fff;
+  padding: 0 32rpx;
+  height: 72rpx; line-height: 72rpx;
+  border-radius: 36rpx;
+  font-size: 28rpx;
+}

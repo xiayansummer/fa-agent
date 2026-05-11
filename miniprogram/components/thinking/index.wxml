@@ -1,0 +1,16 @@
+<view class="thinking">
+  <view class="avatar avatar-{{agent}}">
+    <text wx:if="{{agent === 'orchestrator'}}">O</text>
+    <text wx:elif="{{agent === 'list'}}">名</text>
+    <text wx:elif="{{agent === 'content'}}">内</text>
+    <text wx:elif="{{agent === 'outreach'}}">触</text>
+  </view>
+  <view class="content">
+    <view class="label">{{label}}</view>
+    <view class="dots">
+      <view class="dot"></view>
+      <view class="dot"></view>
+      <view class="dot"></view>
+    </view>
+  </view>
+</view>

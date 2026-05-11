@@ -1,0 +1,30 @@
+.thinking {
+  display: flex; gap: 16rpx; align-items: center;
+  padding: 24rpx; background: #fff; border-radius: 16rpx;
+  margin-bottom: 16rpx;
+  border-left: 8rpx solid var(--agent-content);
+}
+.avatar {
+  width: 48rpx; height: 48rpx; border-radius: 8rpx;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 22rpx; font-weight: 600;
+}
+.avatar-orchestrator { background: #6B7AFF; }
+.avatar-list { background: #8B5CF6; }
+.avatar-content { background: #374151; }
+.avatar-outreach { background: #F59E0B; }
+
+.content { flex: 1; }
+.label { font-size: 26rpx; color: var(--text-secondary); margin-bottom: 8rpx; }
+.dots { display: flex; gap: 6rpx; }
+.dot {
+  width: 12rpx; height: 12rpx; border-radius: 50%;
+  background: var(--text-secondary);
+  animation: blink 1.4s infinite;
+}
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}

@@ -1,3 +1,30 @@
-<view class="container">
-  <view class="placeholder">💬 对话 (F4 实现)</view>
+<view class="chat">
+  <view class="messages">
+    <block wx:for="{{messages}}" wx:key="id">
+      <view wx:if="{{item.kind === 'user'}}" class="user-bubble">{{item.text}}</view>
+      <thinking
+        wx:elif="{{item.kind === 'thinking'}}"
+        agent="{{item.agent}}"
+        label="{{item.label || '正在思考'}}" />
+      <agent-card
+        wx:elif="{{item.kind === 'agent_card'}}"
+        agent="{{item.agent}}"
+        title="{{item.title}}"
+        body="{{item.body}}"
+        actions="{{item.actions}}"
+        show-status="{{item.showStatus}}"
+        bind:action="onCardAction" />
+    </block>
+  </view>
+
+  <view class="input-bar">
+    <input
+      class="input"
+      value="{{input}}"
+      bindinput="onInput"
+      placeholder="输入消息..."
+      confirm-type="send"
+      bindconfirm="onSend" />
+    <view class="send-btn" bindtap="onSend">发送</view>
+  </view>
 </view>

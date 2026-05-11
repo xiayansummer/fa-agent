@@ -1,1 +1,7 @@
-{ "navigationBarTitleText": "对话" }
+{
+  "navigationBarTitleText": "FA Agent",
+  "usingComponents": {
+    "agent-card": "/components/agent-card/index",
+    "thinking": "/components/thinking/index"
+  }
+}

@@ -1,0 +1,26 @@
+<view class="card agent-{{agent}}">
+  <view class="card-head">
+    <view class="avatar avatar-{{agent}}">
+      <text wx:if="{{agent === 'orchestrator'}}">O</text>
+      <text wx:elif="{{agent === 'list'}}">名</text>
+      <text wx:elif="{{agent === 'content'}}">内</text>
+      <text wx:elif="{{agent === 'outreach'}}">触</text>
+    </view>
+    <view class="agent-name">{{title}}</view>
+    <view wx:if="{{showStatus}}" class="status">{{showStatus}}</view>
+  </view>
+  <view class="card-body">
+    <slot wx:if="{{!body}}"></slot>
+    <text wx:else>{{body}}</text>
+  </view>
+  <view class="actions" wx:if="{{actions.length > 0 && !showStatus}}">
+    <view
+      wx:for="{{actions}}"
+      wx:key="action"
+      class="action-btn {{item.primary ? 'primary' : ''}}"
+      data-action="{{item.action}}"
+      bindtap="onAction">
+      {{item.label}}
+    </view>
+  </view>
+</view>
