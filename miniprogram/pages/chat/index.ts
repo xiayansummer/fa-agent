@@ -32,6 +32,10 @@ interface PageData {
   scrollToView: string;
   history: { role: 'user' | 'assistant'; content: string }[];
   currentThreadId: string;
+  modalVisible: boolean;
+  modalBody: string;
+  modalAgentTitle: string;
+  modalThreadId: string;
 }
 
 Page<PageData, {}>({
@@ -41,6 +45,10 @@ Page<PageData, {}>({
     scrollToView: '',
     history: [],
     currentThreadId: '',
+    modalVisible: false,
+    modalBody: '',
+    modalAgentTitle: '',
+    modalThreadId: '',
   },
 
   onLoad() {
@@ -296,8 +304,13 @@ Page<PageData, {}>({
 
     // 长内容点 modify（!inlineEditable），且没有 final（即第一次点，不是提交）
     if (action === 'modify' && !final && msg.body && msg.body.length >= 200) {
-      // 长内容 → 弹 Modal（F10 实现）— 暂用 toast 占位
-      wx.showToast({ title: '长内容编辑（F10 实现）', icon: 'none' });
+      // 长内容 modify → 弹 Modal
+      this.setData({
+        modalVisible: true,
+        modalAgentTitle: msg.title || '内容 Agent',
+        modalBody: msg.body,
+        modalThreadId: msg.threadId,
+      });
       return;
     }
 
@@ -322,6 +335,33 @@ Page<PageData, {}>({
           showStatus: '已拒绝',
         });
       }
+    } catch (err: any) {
+      wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
+    }
+  },
+
+  onModalClose() {
+    this.setData({ modalVisible: false });
+  },
+
+  async onModalAction(e: WechatMiniprogram.CustomEvent<{ action: string; final?: string }>) {
+    const { action, final } = e.detail;
+    const threadId = this.data.modalThreadId;
+    if (!threadId) return;
+
+    const actionMap: Record<string, string> = {
+      approve: 'approved',
+      reject: 'rejected',
+      modify: 'modified',
+      modify_and_approve: 'approved',  // 同 approved 但带修改后的内容
+    };
+
+    try {
+      const body: any = { action: actionMap[action] };
+      if (final) body.final = final;
+      await api.post(`/api/agent/${threadId}/review`, body);
+      this.setData({ modalVisible: false });
+      // 等 WS done 推回更新卡片
     } catch (err: any) {
       wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
     }

@@ -1,0 +1,28 @@
+<view wx:if="{{visible}}" class="modal-mask" catchtap="onClose">
+  <view class="modal" catchtap="">
+    <view class="modal-head">
+      <view class="close" bindtap="onClose">×</view>
+      <view class="agent-title">{{agentTitle}}</view>
+      <view class="quick-actions">
+        <view class="quick-btn approve" bindtap="onApprove">通过</view>
+        <view class="quick-btn reject" bindtap="onReject">拒绝</view>
+      </view>
+    </view>
+
+    <textarea
+      class="modal-textarea"
+      value="{{editText}}"
+      bindinput="onEditInput"
+      auto-height="false"
+      maxlength="-1" />
+
+    <view class="modal-footer">
+      <view class="footer-btn ghost {{submitting ? 'disabled' : ''}}" bindtap="{{submitting ? '' : 'onSaveDraft'}}">
+        保存草稿
+      </view>
+      <view class="footer-btn primary {{submitting ? 'disabled' : ''}}" bindtap="{{submitting ? '' : 'onApproveModified'}}">
+        通过并发送
+      </view>
+    </view>
+  </view>
+</view>

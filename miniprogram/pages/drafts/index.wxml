@@ -1,1 +1,31 @@
-<view class="placeholder">草稿历史（F10 实现）</view>
+<view class="page">
+  <scroll-view scroll-x class="filter-row">
+    <view
+      wx:for="{{filterTypes}}"
+      wx:key="value"
+      class="chip {{filterType === item.value ? 'selected' : ''}}"
+      data-value="{{item.value}}"
+      bindtap="onFilterTap">
+      {{item.label}}
+    </view>
+  </scroll-view>
+
+  <view class="list">
+    <view wx:if="{{records.length === 0 && !loading}}" class="empty">
+      没有草稿记录
+    </view>
+    <view
+      wx:for="{{records}}"
+      wx:key="id"
+      class="card"
+      data-item="{{item}}"
+      bindtap="onItemTap">
+      <view class="card-head">
+        <view class="type-tag">{{item.typeLabel}}</view>
+        <view class="status" style="color: {{item.statusColor}}">{{item.statusLabel}}</view>
+        <view class="date">{{item.createdLabel}}</view>
+      </view>
+      <view class="content-preview">{{item.contentPreview}}{{item.content.length > 80 ? '...' : ''}}</view>
+    </view>
+  </view>
+</view>

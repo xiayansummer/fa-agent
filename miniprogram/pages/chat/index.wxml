@@ -32,3 +32,10 @@
     <view class="send-btn" bindtap="onSend">发送</view>
   </view>
 </view>
+
+<review-full-modal
+  visible="{{modalVisible}}"
+  agent-title="{{modalAgentTitle}}"
+  body="{{modalBody}}"
+  bind:close="onModalClose"
+  bind:action="onModalAction" />
