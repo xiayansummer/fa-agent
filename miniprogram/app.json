@@ -12,8 +12,7 @@
     "pages/meeting-prepare/index",
     "pages/me/index",
     "pages/tencent-setup/index",
-    "pages/drafts/index",
-    "pages/webview/index"
+    "pages/drafts/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

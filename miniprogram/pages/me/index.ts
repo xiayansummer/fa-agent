@@ -94,47 +94,17 @@ Page<PageData, {}>({
     this.setData({ tencentTokenEdit: e.detail.value, tencentTestResult: '', tencentTestOk: false });
   },
 
-  openAiSkill() {
-    // 内嵌 webview 打开（需要在开发者工具勾选"不校验合法域名"，或生产环境配置业务域名）
-    const url = encodeURIComponent('https://meeting.tencent.com/ai-skill.html');
-    const title = encodeURIComponent('腾讯会议 AI Skill');
-    wx.navigateTo({
-      url: `/pages/webview/index?url=${url}&title=${title}`,
-      fail: () => {
-        // 失败 fallback：复制
-        wx.setClipboardData({
-          data: 'https://meeting.tencent.com/ai-skill.html',
-          success: () => wx.showToast({ title: 'URL 已复制', icon: 'success' }),
-        });
-      },
-    });
-  },
-
   copyAiSkillUrl() {
     wx.setClipboardData({
       data: 'https://meeting.tencent.com/ai-skill.html',
-      success: () => wx.showToast({ title: 'URL 已复制', icon: 'success' }),
-    });
-  },
-
-  openCloudRecordingDoc() {
-    const url = encodeURIComponent('https://meeting.tencent.com/support/topic/1853/index.html');
-    const title = encodeURIComponent('如何开启云录制');
-    wx.navigateTo({
-      url: `/pages/webview/index?url=${url}&title=${title}`,
-      fail: () => {
-        wx.setClipboardData({
-          data: 'https://meeting.tencent.com/support/topic/1853/index.html',
-          success: () => wx.showToast({ title: 'URL 已复制', icon: 'success' }),
-        });
-      },
+      success: () => wx.showToast({ title: '已复制，可粘贴到浏览器打开', icon: 'none' }),
     });
   },
 
   copyCloudRecordingUrl() {
     wx.setClipboardData({
       data: 'https://meeting.tencent.com/support/topic/1853/index.html',
-      success: () => wx.showToast({ title: 'URL 已复制', icon: 'success' }),
+      success: () => wx.showToast({ title: '已复制，可粘贴到浏览器打开', icon: 'none' }),
     });
   },
 
