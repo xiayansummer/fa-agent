@@ -21,7 +21,6 @@ interface SearchHit {
   qmingpian_person_id: string;
   name: string;
   agency?: string;
-  position?: string;
   local_id: number | null;
   avatar_url?: string;
   business_card_url?: string;
@@ -158,10 +157,15 @@ Page<PageData, {}>({
       // 已在本地 → 跳详情
       wx.navigateTo({ url: `/pages/investor-detail/index?id=${hit.local_id}` });
     } else {
-      // 未加入 → 跳编辑页（带 person_id 预填）
-      wx.navigateTo({
-        url: `/pages/investor-edit/index?qmingpian_person_id=${encodeURIComponent(hit.qmingpian_person_id)}&name=${encodeURIComponent(hit.name)}&agency=${encodeURIComponent(hit.agency || '')}`,
-      });
+      // 未加入 → 跳编辑页（带 person_id + 企名片返回的 icon/card 预填）
+      const params = [
+        `qmingpian_person_id=${encodeURIComponent(hit.qmingpian_person_id)}`,
+        `name=${encodeURIComponent(hit.name)}`,
+        `agency=${encodeURIComponent(hit.agency || '')}`,
+      ];
+      if (hit.avatar_url) params.push(`avatar_url=${encodeURIComponent(hit.avatar_url)}`);
+      if (hit.business_card_url) params.push(`business_card_url=${encodeURIComponent(hit.business_card_url)}`);
+      wx.navigateTo({ url: `/pages/investor-edit/index?${params.join('&')}` });
     }
   },
 
@@ -175,6 +179,8 @@ Page<PageData, {}>({
         qmingpian_person_id: hit.qmingpian_person_id,
         name: hit.name,
         agency: hit.agency || '',
+        avatar_url: hit.avatar_url || null,
+        business_card_url: hit.business_card_url || null,
       });
       wx.showToast({ title: '已加入', icon: 'success' });
       // 刷新搜索结果，让此条变成 isLocal

@@ -36,15 +36,14 @@
       class="card hit-card {{item.isLocal ? 'is-local' : ''}}"
       data-hit="{{item}}"
       bindtap="onHitTap">
-      <image wx:if="{{item.avatar_url}}" class="avatar avatar-img" src="{{item.avatar_url}}" mode="aspectFill" />
-      <view wx:else class="avatar avatar-0">{{item.firstLetter}}</view>
+      <view class="avatar avatar-0">{{item.firstLetter}}</view>
       <view class="info">
         <view class="row1">
           <view class="name">{{item.name}}</view>
           <view wx:if="{{item.isLocal}}" class="badge in-lib">在我的库</view>
           <view wx:else class="badge ext">企名片</view>
         </view>
-        <view class="row2">{{item.agencyOrEmpty}}{{item.position ? ' · ' + item.position : ''}}</view>
+        <view class="row2">{{item.agencyOrEmpty}}</view>
       </view>
       <view wx:if="{{!item.isLocal}}" class="quick-add {{adding === item.qmingpian_person_id ? 'busy' : ''}}"
             data-hit="{{item}}"
@@ -65,8 +64,7 @@
       class="card"
       data-id="{{item.id}}"
       bindtap="onInvestorTap">
-      <image wx:if="{{item.avatar_url}}" class="avatar avatar-img" src="{{item.avatar_url}}" mode="aspectFill" />
-      <view wx:else class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
+      <view class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
       <view class="info">
         <view class="row1">
           <view class="name">{{item.name}}</view>

@@ -55,7 +55,14 @@ Page<PageData, {}>({
     familiarityOptions: FAMILIARITY_OPTIONS,
   },
 
-  onLoad(opts: { id?: string; qmingpian_person_id?: string; name?: string; agency?: string }) {
+  onLoad(opts: {
+    id?: string;
+    qmingpian_person_id?: string;
+    name?: string;
+    agency?: string;
+    avatar_url?: string;
+    business_card_url?: string;
+  }) {
     if (opts.id) {
       const id = parseInt(opts.id);
       this.setData({ isEdit: true, investorId: id });
@@ -66,13 +73,17 @@ Page<PageData, {}>({
       const personId = decodeURIComponent(opts.qmingpian_person_id);
       const name = opts.name ? decodeURIComponent(opts.name) : '';
       const agency = opts.agency ? decodeURIComponent(opts.agency) : '';
+      const avatarUrl = opts.avatar_url ? decodeURIComponent(opts.avatar_url) : '';
+      const cardUrl = opts.business_card_url ? decodeURIComponent(opts.business_card_url) : '';
       this.setData({
         qmingpianPersonId: personId,
         'form.name': name,
         'form.agency': agency,
+        'form.avatar_url': avatarUrl,
+        'form.business_card_url': cardUrl,
       });
       wx.setNavigationBarTitle({ title: '加入我的库' });
-      // 按姓名从企名片 enrich（机构/手机/邮箱/行业）
+      // 按姓名从企名片 enrich（机构/手机/邮箱/行业；同时再次拉名片图）
       this._enrichFromQmingpian(name);
     } else {
       wx.setNavigationBarTitle({ title: '新增投资人' });
@@ -83,25 +94,17 @@ Page<PageData, {}>({
     if (!personName) return;
     try {
       const enriched = await api.get<{
-        agency?: string;
-        position?: string;
-        avatar_url?: string;
-        business_card_url?: string;
-        phone?: string[];
-        email?: string[];
-        industry?: string;
+        agency?: string; phone?: string[]; email?: string[]; industry?: string;
       }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
          { silent: true });
       if (!enriched) return;
       const patch: any = {};
-      // 只在表单为空时回填，避免覆盖 IR 已输入的
+      // 注意：只在表单为空时回填，避免覆盖用户已输入的
       if (enriched.agency && !this.data.form.agency) patch['form.agency'] = enriched.agency;
-      if (enriched.position && !this.data.form.position) patch['form.position'] = enriched.position;
-      if (enriched.avatar_url && !this.data.form.avatar_url) patch['form.avatar_url'] = enriched.avatar_url;
-      if (enriched.business_card_url && !this.data.form.business_card_url) patch['form.business_card_url'] = enriched.business_card_url;
+      // phone 字段类型 list — Form 里没有，先不处理（如果将来加 phone 输入框可补）
       if (Object.keys(patch).length) this.setData(patch);
     } catch {
-      // 静默失败
+      // 静默失败（人不在 open_id 范围内，或接口暂不可用）
     }
   },
 

@@ -38,14 +38,16 @@ class InvestorOut(BaseModel):
 
 
 class SearchHitOut(BaseModel):
-    """搜索结果条目：可能是本地已有的投资人（local_id 非 None），也可能仅在企名片存在。"""
+    """搜索结果条目：可能是本地已有的投资人（local_id 非 None），也可能仅在企名片存在。
+
+    avatar_url / business_card_url 优先用本地已上传的；本地无则用企名片返回的（icon/url 字段）。
+    """
     qmingpian_person_id: str
     name: str
     agency: Optional[str] = None
-    position: Optional[str] = None       # 企名片 zhiwu
-    local_id: Optional[int] = None       # 本地 fa_agent.investors.id；None 表示尚未加入本地库
-    avatar_url: Optional[str] = None     # 企名片 icon 或 本地 avatar_url
-    business_card_url: Optional[str] = None  # 企名片 url 或 本地 business_card_url
+    local_id: Optional[int] = None
+    avatar_url: Optional[str] = None       # 本地 avatar_url 或企名片 icon
+    business_card_url: Optional[str] = None  # 本地 business_card_url 或企名片 url
 
 
 class InvestorListOut(BaseModel):
@@ -185,32 +187,27 @@ async def search_investors(
         if not pid:
             continue
         local_info = local_map.get(pid)
-        # 本地已有的优先用本地（IR 可能上传过更新的）；否则用企名片返回
-        qmingpian_icon = h.get("icon") or None
-        qmingpian_card = h.get("url") or None
+        # 本地有则用本地，否则用企名片返回的 icon (头像) / url (名片图)
+        qm_icon = h.get("icon") or None
+        qm_card = h.get("url") or None
         items.append(SearchHitOut(
             qmingpian_person_id=pid,
             name=h.get("name", ""),
             agency=h.get("agency"),
-            position=h.get("zhiwu") or None,
             local_id=local_info["id"] if local_info else None,
-            avatar_url=(local_info["avatar_url"] if local_info and local_info["avatar_url"]
-                       else qmingpian_icon),
-            business_card_url=(local_info["business_card_url"] if local_info and local_info["business_card_url"]
-                              else qmingpian_card),
+            avatar_url=(local_info["avatar_url"] if local_info else None) or qm_icon,
+            business_card_url=(local_info["business_card_url"] if local_info else None) or qm_card,
         ))
     return SearchListOut(items=items, total=len(items))
 
 
 class EnrichedQmingpianOut(BaseModel):
-    """从企名片综合拉取的投资人详情。组合了：
-    - searchPerson: position(zhiwu) / avatar_url(icon) / business_card_url(url)
-    - exportPersonOpen xlsx: agency / phone / email / industry(FAwork行业)
+    """从企名片 exportPersonOpen 拉取的详情（xlsx 解析）。
+
+    企名片该接口返回 xlsx，表头：机构/手机/邮箱/FAwork行业。
+    只能查到当前 open_id 范围内的人（自己加过或被共享）。
     """
     agency: Optional[str] = None
-    position: Optional[str] = None
-    avatar_url: Optional[str] = None
-    business_card_url: Optional[str] = None
     phone: Optional[list] = None
     email: Optional[list] = None
     industry: Optional[str] = None
@@ -221,33 +218,20 @@ async def enrich_from_qmingpian(
     person_name: str = Query(..., min_length=1, description="投资人姓名"),
     _: dict = Depends(get_current_ir),
 ):
-    """按姓名从企名片综合拉详情（基本信息 + 头像/名片图 + 手机邮箱）。
-    查不到时返 200 + 空字段，前端 graceful。"""
-    out = EnrichedQmingpianOut()
-    # 1) searchPerson 拿头像/名片/职位/机构
+    """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业）。
+    查不到（不在 open_id 范围内）时返回 200 + 空字段。"""
     try:
-        hits = await qmingpian_search_person(person_name)
-        if hits:
-            # 精确匹配姓名优先；没有就取第一条
-            hit = next((h for h in hits if h.get("name") == person_name), hits[0])
-            out.agency = hit.get("agency") or None
-            out.position = hit.get("zhiwu") or None
-            out.avatar_url = hit.get("icon") or None
-            out.business_card_url = hit.get("url") or None
+        data = await qmingpian_export_person(person_name)
     except Exception:
-        pass
-    # 2) exportPersonOpen 拉 phone/email（xlsx 解析）
-    try:
-        ex = await qmingpian_export_person(person_name)
-        if ex and isinstance(ex, dict):
-            if not out.agency and ex.get("agency"):
-                out.agency = ex.get("agency")
-            out.phone = ex.get("phone")
-            out.email = ex.get("email")
-            out.industry = ex.get("industry")
-    except Exception:
-        pass
-    return out
+        return EnrichedQmingpianOut()
+    if not data or not isinstance(data, dict):
+        return EnrichedQmingpianOut()
+    return EnrichedQmingpianOut(
+        agency=data.get("agency"),
+        phone=data.get("phone"),
+        email=data.get("email"),
+        industry=data.get("industry"),
+    )
 
 
 @router.get("/{investor_id}", response_model=InvestorOut)
