@@ -60,6 +60,7 @@ Page<PageData, {}>({
     qmingpian_person_id?: string;
     name?: string;
     agency?: string;
+    position?: string;
     avatar_url?: string;
     business_card_url?: string;
   }) {
@@ -73,12 +74,14 @@ Page<PageData, {}>({
       const personId = decodeURIComponent(opts.qmingpian_person_id);
       const name = opts.name ? decodeURIComponent(opts.name) : '';
       const agency = opts.agency ? decodeURIComponent(opts.agency) : '';
+      const position = opts.position ? decodeURIComponent(opts.position) : '';
       const avatarUrl = opts.avatar_url ? decodeURIComponent(opts.avatar_url) : '';
       const cardUrl = opts.business_card_url ? decodeURIComponent(opts.business_card_url) : '';
       this.setData({
         qmingpianPersonId: personId,
         'form.name': name,
         'form.agency': agency,
+        'form.position': position,
         'form.avatar_url': avatarUrl,
         'form.business_card_url': cardUrl,
       });

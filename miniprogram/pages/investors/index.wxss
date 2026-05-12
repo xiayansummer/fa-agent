@@ -54,6 +54,21 @@ page { background: var(--bg-base); }
   flex-shrink: 0;
 }
 
+.hit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6rpx;
+  margin-top: 8rpx;
+}
+.hit-chips .mini-tag.ind {
+  background: #dbeafe;
+  color: #2563eb;
+}
+.hit-chips .mini-tag.tag-chip {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+
 .quick-add {
   flex-shrink: 0;
   padding: 12rpx 20rpx;

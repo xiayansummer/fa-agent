@@ -46,6 +46,7 @@ class SearchHitOut(BaseModel):
     """搜索结果条目：可能是本地已有的投资人（local_id 非 None），也可能仅在企名片存在。
 
     avatar_url / business_card_url 优先用本地已上传的；本地无则用企名片返回的（icon/url 字段）。
+    position / tags / industries 来自企名片 searchPerson 返回的 zhiwu / tag / industry_info。
     """
     qmingpian_person_id: str
     name: str
@@ -53,6 +54,9 @@ class SearchHitOut(BaseModel):
     local_id: Optional[int] = None
     avatar_url: Optional[str] = None       # 本地 avatar_url 或企名片 icon
     business_card_url: Optional[str] = None  # 本地 business_card_url 或企名片 url
+    position: Optional[str] = None           # 来自企名片 zhiwu
+    tags: list[str] = []                     # 来自企名片 tag 字段（"|" 拆分）
+    industries: list[str] = []               # 来自企名片 industry_info 一级行业去重
 
 
 class InvestorListOut(BaseModel):
@@ -195,6 +199,18 @@ async def search_investors(
         # 本地有则用本地，否则用企名片返回的 icon (头像) / url (名片图)
         qm_icon = h.get("icon") or None
         qm_card = h.get("url") or None
+        # 标签："美元|消费品牌|消费渠道|消费供应链" → list
+        raw_tag = h.get("tag") or ""
+        tags = [t.strip() for t in raw_tag.split("|") if t and t.strip()]
+        # 关注行业：industry_info=[{industry, sec_industry, third_industry}, ...]
+        # 取一级 industry 去重保序
+        industries: list[str] = []
+        seen: set[str] = set()
+        for it in (h.get("industry_info") or []):
+            ind = (it or {}).get("industry")
+            if ind and ind not in seen:
+                industries.append(ind)
+                seen.add(ind)
         items.append(SearchHitOut(
             qmingpian_person_id=pid,
             name=h.get("name", ""),
@@ -202,6 +218,9 @@ async def search_investors(
             local_id=local_info["id"] if local_info else None,
             avatar_url=(local_info["avatar_url"] if local_info else None) or qm_icon,
             business_card_url=(local_info["business_card_url"] if local_info else None) or qm_card,
+            position=h.get("zhiwu") or None,
+            tags=tags,
+            industries=industries,
         ))
     return SearchListOut(items=items, total=len(items))
 

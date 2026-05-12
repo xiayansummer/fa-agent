@@ -24,6 +24,9 @@ interface SearchHit {
   local_id: number | null;
   avatar_url?: string;
   business_card_url?: string;
+  position?: string;
+  tags?: string[];
+  industries?: string[];
 }
 
 interface PageData {
@@ -101,12 +104,18 @@ Page<PageData, {}>({
       const data = await api.get<{ items: SearchHit[]; total: number }>(
         `/api/investors/search?q=${encodeURIComponent(q)}`
       );
-      const hits = (data.items || []).map((h: any) => ({
-        ...h,
-        firstLetter: h.name?.[0] || '?',
-        agencyOrEmpty: h.agency || '—',
-        isLocal: h.local_id !== null && h.local_id !== undefined,
-      }));
+      const hits = (data.items || []).map((h: any) => {
+        const agency = h.agency || '';
+        const position = h.position || '';
+        return {
+          ...h,
+          firstLetter: h.name?.[0] || '?',
+          agencyPosition: [agency, position].filter(Boolean).join(' · ') || '—',
+          tags: h.tags || [],
+          industries: h.industries || [],
+          isLocal: h.local_id !== null && h.local_id !== undefined,
+        };
+      });
       this.setData({ searchHits: hits });
     } finally {
       this.setData({ loading: false });
@@ -163,6 +172,7 @@ Page<PageData, {}>({
         `name=${encodeURIComponent(hit.name)}`,
         `agency=${encodeURIComponent(hit.agency || '')}`,
       ];
+      if (hit.position) params.push(`position=${encodeURIComponent(hit.position)}`);
       if (hit.avatar_url) params.push(`avatar_url=${encodeURIComponent(hit.avatar_url)}`);
       if (hit.business_card_url) params.push(`business_card_url=${encodeURIComponent(hit.business_card_url)}`);
       wx.navigateTo({ url: `/pages/investor-edit/index?${params.join('&')}` });

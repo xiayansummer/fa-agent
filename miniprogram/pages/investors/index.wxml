@@ -43,7 +43,11 @@
           <view wx:if="{{item.isLocal}}" class="badge in-lib">在我的库</view>
           <view wx:else class="badge ext">企名片</view>
         </view>
-        <view class="row2">{{item.agencyOrEmpty}}</view>
+        <view class="row2">{{item.agencyPosition}}</view>
+        <view wx:if="{{item.industries.length > 0 || item.tags.length > 0}}" class="hit-chips">
+          <view wx:for="{{item.industries}}" wx:for-item="ind" wx:key="*this" class="mini-tag ind">{{ind}}</view>
+          <view wx:for="{{item.tags}}" wx:for-item="t" wx:key="*this" class="mini-tag tag-chip">{{t}}</view>
+        </view>
       </view>
       <image
         wx:if="{{item.business_card_url}}"
