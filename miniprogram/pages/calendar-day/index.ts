@@ -9,6 +9,7 @@ interface CalendarEvent {
   investor_name: string;
   action_label: string;
   action_prefill: string;
+  tencent_meeting_id?: string;
 }
 
 interface PageData {
@@ -67,7 +68,10 @@ Page<PageData, {}>({
 
     if (event.type === 'meeting') {
       // 跳会议纪要准备页（F8 实现）
-      wx.navigateTo({ url: `/pages/meeting-prepare/index?investor_id=${event.investor_id}` });
+      const q = event.tencent_meeting_id
+        ? `meeting_id=${encodeURIComponent(event.tencent_meeting_id)}`
+        : `investor_id=${event.investor_id}`;
+      wx.navigateTo({ url: `/pages/meeting-prepare/index?${q}` });
       return;
     }
 

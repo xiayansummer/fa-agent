@@ -25,11 +25,15 @@ Page<PageData, {}>({
     loadingTencent: false,
   },
 
-  onLoad(opts: { investor_id?: string; investor_ids?: string }) {
+  onLoad(opts: { investor_id?: string; investor_ids?: string; meeting_id?: string }) {
     let ids: number[] = [];
     if (opts.investor_id) ids = [parseInt(opts.investor_id)];
     if (opts.investor_ids) ids = opts.investor_ids.split(',').map(Number).filter(Boolean);
     this.setData({ investorIds: ids });
+    // 日历点击带 meeting_id 进来 → 直接发起腾讯纪要 workflow
+    if (opts.meeting_id) {
+      this._runWithTencent(decodeURIComponent(opts.meeting_id));
+    }
   },
 
   // === 模式 1：腾讯会议 ===
