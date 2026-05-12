@@ -14,6 +14,18 @@ def _base(extra: dict | None = None) -> dict:
     return data
 
 
+def _team(extra: dict | None = None) -> dict:
+    """searchPerson / exportPersonOpen 需要 team_uuid + unionid 才能拿到完整字段。"""
+    data: dict = {}
+    if settings.qmingpian_team_uuid:
+        data["team_uuid"] = settings.qmingpian_team_uuid
+    if settings.qmingpian_unionid:
+        data["unionid"] = settings.qmingpian_unionid
+    if extra:
+        data.update(extra)
+    return data
+
+
 def _check(resp: httpx.Response) -> dict:
     data = resp.json()
     if str(data.get("status")) != "0":
@@ -24,10 +36,13 @@ def _check(resp: httpx.Response) -> dict:
 @skill(registry=skill_registry, name="企名片.查询投资人",
        version="1.0", timeout=10, retry=2, fallback=[])
 async def qmingpian_search_person(keywords: str) -> list[dict]:
+    """搜索投资人。带 team_uuid + unionid 时返回完整字段：
+    person_id, name, agency, zhiwu(职位), agency_id, case, style,
+    is_develop, icon(头像URL), url(名片图URL)。"""
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{BASE_URL}/Person/searchPerson",
-            data=_base({"keywords": keywords}),
+            data=_team({"keywords": keywords}),
         )
     data = _check(resp)
     return data.get("data", {}).get("list", [])
@@ -183,7 +198,7 @@ async def qmingpian_export_person(person_name: str) -> dict:
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             f"{BASE_URL}/Export/exportPersonOpen",
-            data=_base({"person_name": person_name}),
+            data=_team({"person_name": person_name}),
         )
 
     # 如果 status code 异常或返回 JSON（说明出错）

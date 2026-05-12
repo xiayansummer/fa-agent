@@ -21,6 +21,7 @@ interface SearchHit {
   qmingpian_person_id: string;
   name: string;
   agency?: string;
+  position?: string;
   local_id: number | null;
   avatar_url?: string;
   business_card_url?: string;

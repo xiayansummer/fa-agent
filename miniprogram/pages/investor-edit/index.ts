@@ -83,17 +83,25 @@ Page<PageData, {}>({
     if (!personName) return;
     try {
       const enriched = await api.get<{
-        agency?: string; phone?: string[]; email?: string[]; industry?: string;
+        agency?: string;
+        position?: string;
+        avatar_url?: string;
+        business_card_url?: string;
+        phone?: string[];
+        email?: string[];
+        industry?: string;
       }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
          { silent: true });
       if (!enriched) return;
       const patch: any = {};
-      // 注意：只在表单为空时回填，避免覆盖用户已输入的
+      // 只在表单为空时回填，避免覆盖 IR 已输入的
       if (enriched.agency && !this.data.form.agency) patch['form.agency'] = enriched.agency;
-      // phone 字段类型 list — Form 里没有，先不处理（如果将来加 phone 输入框可补）
+      if (enriched.position && !this.data.form.position) patch['form.position'] = enriched.position;
+      if (enriched.avatar_url && !this.data.form.avatar_url) patch['form.avatar_url'] = enriched.avatar_url;
+      if (enriched.business_card_url && !this.data.form.business_card_url) patch['form.business_card_url'] = enriched.business_card_url;
       if (Object.keys(patch).length) this.setData(patch);
     } catch {
-      // 静默失败（人不在 open_id 范围内，或接口暂不可用）
+      // 静默失败
     }
   },
 

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     tavily_api_key: str
 
     qmingpian_token: str  # open_id for Investarget/企名片 API
+    qmingpian_team_uuid: str = ""  # 企名片团队 UUID（searchPerson 需带返完整字段）
+    qmingpian_unionid: str = ""    # 企名片 unionid（同上）
 
     tencent_secret_id: str
     tencent_secret_key: str
