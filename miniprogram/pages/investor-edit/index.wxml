@@ -69,19 +69,6 @@
   </view>
 
   <view class="section">
-    <view class="section-title">本地兴趣标签（仅本地）</view>
-    <view class="tag-grid">
-      <view
-        wx:for="{{industryOptions}}"
-        wx:key="*this"
-        class="tag {{form.industry_tags.indexOf(item) >= 0 ? 'selected' : ''}}"
-        data-field="industry_tags"
-        data-tag="{{item}}"
-        bindtap="onTagToggle">{{item}}</view>
-    </view>
-  </view>
-
-  <view class="section">
     <view class="section-title">阶段偏好</view>
     <view class="tag-grid">
       <view
