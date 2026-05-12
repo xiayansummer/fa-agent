@@ -40,7 +40,36 @@
   </view>
 
   <view class="section">
-    <view class="section-title">行业标签</view>
+    <view class="section-title">投资人标签 · 同步至企名片</view>
+    <view class="qm-tag-list">
+      <view wx:for="{{form.qmingpian_tags}}" wx:key="*this" class="qm-tag">
+        {{item}}
+        <text class="qm-tag-x" data-tag="{{item}}" catchtap="onTagRemove">×</text>
+      </view>
+      <view wx:if="{{form.qmingpian_tags.length === 0}}" class="qm-tag-empty">暂无标签</view>
+    </view>
+    <view class="qm-tag-input-row">
+      <input
+        class="qm-tag-input"
+        value="{{tagInput}}"
+        placeholder="输入新标签，如 美元 / 消费品牌"
+        bindinput="onTagInput"
+        bindconfirm="onTagAdd"
+        confirm-type="done" />
+      <view class="qm-tag-add {{tagInput ? '' : 'disabled'}}" bindtap="onTagAdd">+ 添加</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">关注行业 · 来自企名片（只读）</view>
+    <view wx:if="{{qmingpianIndustries.length > 0}}" class="qm-ind-list">
+      <view wx:for="{{qmingpianIndustries}}" wx:key="*this" class="qm-ind">{{item}}</view>
+    </view>
+    <view wx:else class="qm-tag-empty">企名片暂无行业偏好信息</view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">本地兴趣标签（仅本地）</view>
     <view class="tag-grid">
       <view
         wx:for="{{industryOptions}}"

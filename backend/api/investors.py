@@ -15,6 +15,7 @@ from skills.qmingpian import (
     qmingpian_edit_person,
     qmingpian_export_person,
     qmingpian_add_familiar_person,
+    qmingpian_update_person_tags,
 )
 import logging
 
@@ -92,6 +93,8 @@ class InvestorCreate(BaseModel):
     first_meeting_date: Optional[date_type] = None
     # 如果用户从搜索结果"加入我的库"，传 person_id 跳过 addPerson
     qmingpian_person_id: Optional[str] = None
+    # 投资人标签：写回企名片 updatePersonTag (本地不存)
+    qmingpian_tags: Optional[list[str]] = None
 
 
 class InvestorUpdate(BaseModel):
@@ -114,6 +117,8 @@ class InvestorUpdate(BaseModel):
     birthday: Optional[date_type] = None
     join_agency_date: Optional[date_type] = None
     first_meeting_date: Optional[date_type] = None
+    # 投资人标签：写回企名片 updatePersonTag (本地不存)
+    qmingpian_tags: Optional[list[str]] = None
 
 
 def _first_or_empty(lst: Optional[list]) -> str:
@@ -251,6 +256,61 @@ class EnrichedQmingpianOut(BaseModel):
     history: list[QmingpianHistory] = []
 
 
+class QmingpianHitOut(BaseModel):
+    """企名片单条快照：编辑页用，标签 + 关注行业 + 职务（来自 searchPerson）。"""
+    person_id: Optional[str] = None
+    position: Optional[str] = None
+    tags: list[str] = []
+    industries: list[str] = []
+
+
+@router.get("/qmingpian/searchhit", response_model=QmingpianHitOut)
+async def qmingpian_hit(
+    name: str = Query(..., min_length=1, description="投资人姓名"),
+    agency: Optional[str] = Query(None, description="机构名（用于在多结果时精确定位）"),
+    _: dict = Depends(get_current_ir),
+):
+    """编辑页拉企名片单条快照（标签、关注行业、职务）。
+    用 name 调 searchPerson，agency 用于在多结果时精确匹配。查无返回空字段（200）。"""
+    try:
+        hits = await qmingpian_search_person(name)
+    except Exception:
+        return QmingpianHitOut()
+    if not hits:
+        return QmingpianHitOut()
+
+    pick = None
+    if agency:
+        for h in hits:
+            if (h.get("agency") or "") == agency and (h.get("name") or "") == name:
+                pick = h
+                break
+    if pick is None:
+        # 兜底：取第一条同名的
+        for h in hits:
+            if (h.get("name") or "") == name:
+                pick = h
+                break
+    if pick is None:
+        return QmingpianHitOut()
+
+    raw_tag = pick.get("tag") or ""
+    tags = [t.strip() for t in raw_tag.split("|") if t and t.strip()]
+    industries: list[str] = []
+    seen: set[str] = set()
+    for it in (pick.get("industry_info") or []):
+        ind = (it or {}).get("industry")
+        if ind and ind not in seen:
+            industries.append(ind)
+            seen.add(ind)
+    return QmingpianHitOut(
+        person_id=pick.get("person_id"),
+        position=pick.get("zhiwu") or None,
+        tags=tags,
+        industries=industries,
+    )
+
+
 @router.get("/qmingpian/by-name", response_model=EnrichedQmingpianOut)
 async def enrich_from_qmingpian(
     person_name: str = Query(..., min_length=1, description="投资人姓名"),
@@ -327,6 +387,17 @@ async def create_investor(
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"企名片新增失败: {e}")
 
+    # 投资人标签写回企名片（本地不存）
+    if body.qmingpian_tags is not None and body.qmingpian_tags:
+        try:
+            await qmingpian_update_person_tags(
+                name=body.name,
+                agency=body.agency or "",
+                tags=body.qmingpian_tags,
+            )
+        except Exception as e:
+            logger.warning("qmingpian tags sync failed on create for %s: %s", body.name, e)
+
     # 本地插入（含扩展字段）
     investor = Investor(
         qmingpian_person_id=person_id,
@@ -373,6 +444,8 @@ async def update_investor(
         raise HTTPException(status_code=404, detail="投资人不存在")
 
     updates = body.model_dump(exclude_unset=True)
+    # qmingpian_tags 不入本地表，单独处理
+    qmingpian_tags_update = updates.pop("qmingpian_tags", None)
 
     # 1) 同步基本信息到企名片
     qmingpian_changes = {k: v for k, v in updates.items() if k in _QMINGPIAN_FIELDS}
@@ -416,7 +489,23 @@ async def update_investor(
                     investor_id, e,
                 )
 
-    # 3) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
+    # 3) 投资人标签回写企名片（updatePersonTag, 本地不存）
+    if qmingpian_tags_update is not None:
+        try:
+            name_for_qm = updates.get("name") or investor.name
+            agency_for_qm = updates.get("agency") or investor.agency or ""
+            await qmingpian_update_person_tags(
+                name=name_for_qm,
+                agency=agency_for_qm,
+                tags=qmingpian_tags_update,
+            )
+        except Exception as e:
+            logger.warning(
+                "qmingpian tag sync failed for investor %s: %s",
+                investor_id, e,
+            )
+
+    # 4) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
     for field, value in updates.items():
         setattr(investor, field, value)
     await db.commit()

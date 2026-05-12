@@ -12,6 +12,8 @@ interface FormState {
   stage_pref: string[];
   profile_notes: string;
   birthday: string;
+  /** 投资人标签（写回企名片 updatePersonTag，本地不存） */
+  qmingpian_tags: string[];
 }
 
 const FAMILIARITY_OPTIONS = ['未接触', '加过微信', '见过面', '了解投资偏好', '跟进过我们的项目', '好友'];
@@ -26,6 +28,12 @@ interface PageData {
   industryOptions: string[];
   stageOptions: string[];
   familiarityOptions: string[];
+  /** 行业偏好：只读，从企名片 industry_info 拉取 */
+  qmingpianIndustries: string[];
+  /** 投资人标签初始值（用于判断是否变化，避免无变化时仍调 updatePersonTag） */
+  qmingpianTagsOriginal: string[];
+  /** 新标签输入框 */
+  tagInput: string;
 }
 
 const INDUSTRY_OPTS = ['消费', 'TMT', '医疗', 'AI', 'SaaS', '硬件', '教育', '金融'];
@@ -48,11 +56,15 @@ Page<PageData, {}>({
       stage_pref: [],
       profile_notes: '',
       birthday: '',
+      qmingpian_tags: [],
     },
     saving: false,
     industryOptions: INDUSTRY_OPTS,
     stageOptions: STAGE_OPTS,
     familiarityOptions: FAMILIARITY_OPTIONS,
+    qmingpianIndustries: [],
+    qmingpianTagsOriginal: [],
+    tagInput: '',
   },
 
   onLoad(opts: {
@@ -88,8 +100,37 @@ Page<PageData, {}>({
       wx.setNavigationBarTitle({ title: '加入我的库' });
       // 按姓名从企名片 enrich（机构/手机/邮箱/行业；同时再次拉名片图）
       this._enrichFromQmingpian(name);
+      this._loadQmingpianHit(name, agency);
     } else {
       wx.setNavigationBarTitle({ title: '新增投资人' });
+    }
+  },
+
+  /** 从企名片拉单条快照填充：投资人标签 + 关注行业 + 职务（缺失时回填）。 */
+  async _loadQmingpianHit(name: string, agency: string) {
+    if (!name) return;
+    try {
+      const hit = await api.get<{
+        position?: string;
+        tags?: string[];
+        industries?: string[];
+      }>(`/api/investors/qmingpian/searchhit?name=${encodeURIComponent(name)}` +
+         (agency ? `&agency=${encodeURIComponent(agency)}` : ''),
+         { silent: true });
+      if (!hit) return;
+      const tags = hit.tags || [];
+      const industries = hit.industries || [];
+      const patch: any = {
+        'form.qmingpian_tags': tags,
+        qmingpianTagsOriginal: tags.slice(),
+        qmingpianIndustries: industries,
+      };
+      if (hit.position && !this.data.form.position) {
+        patch['form.position'] = hit.position;
+      }
+      this.setData(patch);
+    } catch {
+      // 静默失败
     }
   },
 
@@ -127,8 +168,11 @@ Page<PageData, {}>({
           stage_pref: inv.stage_pref || [],
           profile_notes: inv.profile_notes || '',
           birthday: inv.birthday || '',
+          qmingpian_tags: [],
         },
       });
+      // 编辑模式下也从企名片拉标签和行业
+      this._loadQmingpianHit(inv.name || '', inv.agency || '');
     } catch (e) {/* toast 由 api 处理 */}
   },
 
@@ -161,6 +205,32 @@ Page<PageData, {}>({
     this.setData({ 'form.birthday': e.detail.value as string });
   },
 
+  onTagInput(e: WechatMiniprogram.Input) {
+    this.setData({ tagInput: e.detail.value });
+  },
+
+  onTagAdd() {
+    const v = (this.data.tagInput || '').trim();
+    if (!v) return;
+    const tags = this.data.form.qmingpian_tags || [];
+    if (tags.includes(v)) {
+      this.setData({ tagInput: '' });
+      return;
+    }
+    this.setData({
+      'form.qmingpian_tags': [...tags, v],
+      tagInput: '',
+    });
+  },
+
+  onTagRemove(e: WechatMiniprogram.TouchEvent) {
+    const tag = e.currentTarget.dataset.tag as string;
+    const tags = this.data.form.qmingpian_tags || [];
+    this.setData({
+      'form.qmingpian_tags': tags.filter(t => t !== tag),
+    });
+  },
+
   async onSave() {
     if (!this.data.form.name.trim()) {
       wx.showToast({ title: '姓名必填', icon: 'none' });
@@ -172,11 +242,20 @@ Page<PageData, {}>({
       // 过滤空字段
       const payload: any = {};
       Object.entries(this.data.form).forEach(([k, v]) => {
+        if (k === 'qmingpian_tags') return; // 单独处理，允许空数组（清空）
         if (v === '' || v === null || (Array.isArray(v) && v.length === 0)) return;
         payload[k] = v;
       });
       // 确保 name 总在
       payload.name = this.data.form.name;
+      // qmingpian_tags 仅当与初始值不同时才发，允许 [] 表示清空
+      const curTags = this.data.form.qmingpian_tags || [];
+      const origTags = this.data.qmingpianTagsOriginal || [];
+      const changed = curTags.length !== origTags.length
+        || curTags.some((t, i) => t !== origTags[i]);
+      if (changed) {
+        payload.qmingpian_tags = curTags;
+      }
 
       if (this.data.isEdit) {
         await api.put(`/api/investors/${this.data.investorId}`, payload);
