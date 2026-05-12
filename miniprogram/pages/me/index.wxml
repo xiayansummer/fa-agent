@@ -37,7 +37,10 @@
 
     <view class="help-block">
       <view class="help-line">访问 AI Skill 页面获取 Token</view>
-      <view class="link-btn" bindtap="openAiSkill">复制 meeting.tencent.com/ai-skill</view>
+      <view class="link-row">
+        <view class="link-btn primary" bindtap="openAiSkill">🔗 打开</view>
+        <view class="link-btn" bindtap="copyAiSkillUrl">复制链接</view>
+      </view>
     </view>
 
     <input
@@ -60,7 +63,10 @@
 
     <view class="warning-block">
       <view class="warn-title">⚠️ 拉取智能纪要需要会议开启云录制</view>
-      <view class="link-btn" bindtap="openCloudRecordingDoc">复制：如何开启云录制</view>
+      <view class="link-row">
+        <view class="link-btn primary" bindtap="openCloudRecordingDoc">🔗 打开教程</view>
+        <view class="link-btn" bindtap="copyCloudRecordingUrl">复制链接</view>
+      </view>
     </view>
   </view>
 
