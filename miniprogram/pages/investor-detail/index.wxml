@@ -1,7 +1,6 @@
 <view class="detail" wx:if="{{investor}}">
   <view class="header">
-    <image wx:if="{{investor.avatar_url}}" class="avatar avatar-img" src="{{investor.avatar_url}}" mode="aspectFill" />
-    <view wx:else class="avatar">{{investor.name[0]}}</view>
+    <view class="avatar">{{investor.name[0]}}</view>
     <view class="info">
       <view class="name">{{investor.name}}</view>
       <view class="position">{{investor.agency || ''}}{{investor.position ? ' · ' + investor.position : ''}}</view>

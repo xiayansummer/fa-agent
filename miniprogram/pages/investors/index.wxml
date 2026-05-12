@@ -36,8 +36,7 @@
       class="card hit-card {{item.isLocal ? 'is-local' : ''}}"
       data-hit="{{item}}"
       bindtap="onHitTap">
-      <image wx:if="{{item.avatar_url}}" class="avatar avatar-img" src="{{item.avatar_url}}" mode="aspectFill" />
-      <view wx:else class="avatar avatar-0">{{item.firstLetter}}</view>
+      <view class="avatar avatar-0">{{item.firstLetter}}</view>
       <view class="info">
         <view class="row1">
           <view class="name">{{item.name}}</view>
@@ -65,8 +64,7 @@
       class="card"
       data-id="{{item.id}}"
       bindtap="onInvestorTap">
-      <image wx:if="{{item.avatar_url}}" class="avatar avatar-img" src="{{item.avatar_url}}" mode="aspectFill" />
-      <view wx:else class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
+      <view class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
       <view class="info">
         <view class="row1">
           <view class="name">{{item.name}}</view>

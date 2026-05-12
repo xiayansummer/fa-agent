@@ -62,15 +62,38 @@ Page<PageData, {}>({
       this._load();
       wx.setNavigationBarTitle({ title: '编辑投资人' });
     } else if (opts.qmingpian_person_id) {
-      // 从企名片搜索"加入我的库"过来：预填 name/agency
+      // 从企名片搜索"加入我的库"过来：URL 参数是 encodeURIComponent 过的，要 decode
+      const personId = decodeURIComponent(opts.qmingpian_person_id);
+      const name = opts.name ? decodeURIComponent(opts.name) : '';
+      const agency = opts.agency ? decodeURIComponent(opts.agency) : '';
       this.setData({
-        qmingpianPersonId: opts.qmingpian_person_id,
-        'form.name': opts.name || '',
-        'form.agency': opts.agency || '',
+        qmingpianPersonId: personId,
+        'form.name': name,
+        'form.agency': agency,
       });
       wx.setNavigationBarTitle({ title: '加入我的库' });
+      // 尝试从后端 enrich（如果后端 exportPersonOpen 拉到了 position/avatar/card 等字段）
+      this._enrichFromQmingpian(personId);
     } else {
       wx.setNavigationBarTitle({ title: '新增投资人' });
+    }
+  },
+
+  async _enrichFromQmingpian(personId: string) {
+    try {
+      const enriched = await api.get<any>(
+        `/api/investors/qmingpian/${encodeURIComponent(personId)}`,
+        { silent: true }
+      );
+      if (!enriched) return;
+      const patch: any = {};
+      if (enriched.position) patch['form.position'] = enriched.position;
+      if (enriched.avatar_url) patch['form.avatar_url'] = enriched.avatar_url;
+      if (enriched.business_card_url) patch['form.business_card_url'] = enriched.business_card_url;
+      if (enriched.profile_notes) patch['form.profile_notes'] = enriched.profile_notes;
+      if (Object.keys(patch).length) this.setData(patch);
+    } catch {
+      // exportPersonOpen 当前调不通，静默失败
     }
   },
 
@@ -201,18 +224,9 @@ Page<PageData, {}>({
     }
   },
 
-  async onPickAvatar() {
-    const url = await this._uploadImage('image');
-    if (url) this.setData({ 'form.avatar_url': url });
-  },
-
   async onPickCard() {
     const url = await this._uploadImage('image');
     if (url) this.setData({ 'form.business_card_url': url });
-  },
-
-  onClearAvatar() {
-    this.setData({ 'form.avatar_url': '' });
   },
 
   onClearCard() {

@@ -105,6 +105,11 @@ page { background: var(--bg-base); }
 .img-thumb.circular {
   border-radius: 50%;
 }
+.img-thumb.wide {
+  width: 100%;
+  height: auto;
+  max-height: 400rpx;
+}
 .img-clear {
   position: absolute;
   top: -12rpx; right: -12rpx;
@@ -124,4 +129,8 @@ page { background: var(--bg-base); }
   display: flex; align-items: center; justify-content: center;
   font-size: 22rpx;
   color: var(--text-secondary);
+}
+.img-add.wide {
+  width: 100%;
+  height: 240rpx;
 }
