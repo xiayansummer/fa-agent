@@ -195,4 +195,10 @@ Page<PageData, {}>({
   onAdd() {
     wx.navigateTo({ url: '/pages/investor-edit/index' });
   },
+
+  onPreviewCard(e: WechatMiniprogram.TouchEvent) {
+    const url = e.currentTarget.dataset.url as string;
+    if (!url) return;
+    wx.previewImage({ urls: [url], current: url });
+  },
 });

@@ -45,6 +45,15 @@ page { background: var(--bg-base); }
 .badge.in-lib { background: #dcfce7; color: #16a34a; }
 .badge.ext { background: #fef3c7; color: #c2410c; }
 
+.card-thumb {
+  width: 110rpx;
+  height: 70rpx;
+  border-radius: 6rpx;
+  border: 1rpx solid var(--border-light);
+  background: #f5f5f7;
+  flex-shrink: 0;
+}
+
 .quick-add {
   flex-shrink: 0;
   padding: 12rpx 20rpx;

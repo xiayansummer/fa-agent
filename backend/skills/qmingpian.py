@@ -172,9 +172,14 @@ async def qmingpian_search_jigou(keywords: str) -> list[dict]:
 @skill(registry=skill_registry, name="企名片.导出投资人详情",
        version="1.0", timeout=15, retry=1)
 async def qmingpian_export_person(person_name: str) -> dict:
-    """通过姓名查询投资人详情。
+    """通过姓名导出投资人详情（xlsx）。
 
-    注意：该接口返回的是 xlsx 文件（非 JSON），表头：机构/手机/邮箱/FAwork行业。
+    返回包含 3 个 sheet 的 xlsx，解析后返回：
+    - agency / phone / email / industry —— 来自"投资人详情"sheet
+    - summaries: list of {content, creator, created_at} —— 来自"投资人纪要"sheet
+    - history: list of {event, agency, industry, round, status, feedback, contact_time}
+      —— 来自"历史推荐"sheet
+
     只能查到当前 open_id 范围内的投资人（自己加过的或被共享的）。
     """
     import io
@@ -186,10 +191,8 @@ async def qmingpian_export_person(person_name: str) -> dict:
             data=_base({"person_name": person_name}),
         )
 
-    # 如果 status code 异常或返回 JSON（说明出错）
     ct = resp.headers.get("content-type", "")
     if not ct.startswith("application/vnd.openxmlformats"):
-        # 出错时是 JSON
         try:
             d = resp.json()
             raise ValueError(f"企名片 export error: status={d.get('status')} message={d.get('message')}")
@@ -197,28 +200,55 @@ async def qmingpian_export_person(person_name: str) -> dict:
             raise ValueError(f"企名片 export 失败，返回非 xlsx: {ct}")
 
     wb = load_workbook(io.BytesIO(resp.content), read_only=True)
-    sheet = wb[wb.sheetnames[0]]
-    rows = list(sheet.iter_rows(values_only=True))
+    result: dict = {"summaries": [], "history": []}
 
-    # row 0: 标题行（如"投资人详情"）； row 1: 表头； row 2: 数据
-    if len(rows) < 3:
-        return {}
-    headers = [str(c).strip() if c else "" for c in rows[1]]
-    values = rows[2]
-
-    result: dict = {}
-    for h, v in zip(headers, values):
-        if not h or v in (None, ""):
+    for sn in wb.sheetnames:
+        ws = wb[sn]
+        rows = list(ws.iter_rows(values_only=True))
+        if len(rows) < 3:
             continue
-        # 映射企名片表头 → 我们的字段名
-        if h == "机构":
-            result["agency"] = v
-        elif h == "手机":
-            result["phone"] = [str(v)]
-        elif h == "邮箱":
-            result["email"] = [str(v)]
-        elif h == "FAwork行业" or h == "行业":
-            result["industry"] = str(v)
+        headers = [str(c).strip() if c else "" for c in rows[1]]
+
+        if sn == "投资人详情":
+            values = rows[2]
+            for h, v in zip(headers, values):
+                if not h or v in (None, ""):
+                    continue
+                if h == "机构":
+                    result["agency"] = v
+                elif h == "手机":
+                    result["phone"] = [str(v)]
+                elif h == "邮箱":
+                    result["email"] = [str(v)]
+                elif h in ("FAwork行业", "行业"):
+                    result["industry"] = str(v)
+
+        elif sn == "投资人纪要":
+            # 表头: 纪要内容 / 创建人 / 创建时间
+            for row in rows[2:]:
+                if not row or all(c in (None, "") for c in row):
+                    continue
+                result["summaries"].append({
+                    "content": str(row[0]) if len(row) > 0 and row[0] else "",
+                    "creator": str(row[1]) if len(row) > 1 and row[1] else "",
+                    "created_at": str(row[2]) if len(row) > 2 and row[2] else "",
+                })
+
+        elif sn == "历史推荐":
+            # 表头: 事件名 / 机构 / 行业 / 服务轮次 / 状态 / 反馈及进展 / 对接时间
+            for row in rows[2:]:
+                if not row or all(c in (None, "") for c in row):
+                    continue
+                result["history"].append({
+                    "event": str(row[0]) if len(row) > 0 and row[0] else "",
+                    "agency": str(row[1]) if len(row) > 1 and row[1] else "",
+                    "industry": str(row[2]) if len(row) > 2 and row[2] else "",
+                    "round": str(row[3]) if len(row) > 3 and row[3] else "",
+                    "status": str(row[4]) if len(row) > 4 and row[4] else "",
+                    "feedback": str(row[5]) if len(row) > 5 and row[5] else "",
+                    "contact_time": str(row[6]) if len(row) > 6 and row[6] else "",
+                })
+
     return result
 
 

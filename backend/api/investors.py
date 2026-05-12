@@ -201,16 +201,30 @@ async def search_investors(
     return SearchListOut(items=items, total=len(items))
 
 
-class EnrichedQmingpianOut(BaseModel):
-    """从企名片 exportPersonOpen 拉取的详情（xlsx 解析）。
+class QmingpianSummary(BaseModel):
+    content: str
+    creator: Optional[str] = None
+    created_at: Optional[str] = None
 
-    企名片该接口返回 xlsx，表头：机构/手机/邮箱/FAwork行业。
-    只能查到当前 open_id 范围内的人（自己加过或被共享）。
-    """
+
+class QmingpianHistory(BaseModel):
+    event: str
+    agency: Optional[str] = None
+    industry: Optional[str] = None
+    round: Optional[str] = None
+    status: Optional[str] = None
+    feedback: Optional[str] = None
+    contact_time: Optional[str] = None
+
+
+class EnrichedQmingpianOut(BaseModel):
+    """从企名片 exportPersonOpen 拉取的投资人详情（xlsx 解析，3 个 sheet）。"""
     agency: Optional[str] = None
     phone: Optional[list] = None
     email: Optional[list] = None
     industry: Optional[str] = None
+    summaries: list[QmingpianSummary] = []
+    history: list[QmingpianHistory] = []
 
 
 @router.get("/qmingpian/by-name", response_model=EnrichedQmingpianOut)
@@ -218,7 +232,7 @@ async def enrich_from_qmingpian(
     person_name: str = Query(..., min_length=1, description="投资人姓名"),
     _: dict = Depends(get_current_ir),
 ):
-    """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业）。
+    """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业/纪要/历史推荐）。
     查不到（不在 open_id 范围内）时返回 200 + 空字段。"""
     try:
         data = await qmingpian_export_person(person_name)
@@ -231,6 +245,8 @@ async def enrich_from_qmingpian(
         phone=data.get("phone"),
         email=data.get("email"),
         industry=data.get("industry"),
+        summaries=[QmingpianSummary(**s) for s in data.get("summaries", [])],
+        history=[QmingpianHistory(**h) for h in data.get("history", [])],
     )
 
 

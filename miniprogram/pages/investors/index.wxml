@@ -45,6 +45,13 @@
         </view>
         <view class="row2">{{item.agencyOrEmpty}}</view>
       </view>
+      <image
+        wx:if="{{item.business_card_url}}"
+        class="card-thumb"
+        src="{{item.business_card_url}}"
+        mode="aspectFill"
+        catchtap="onPreviewCard"
+        data-url="{{item.business_card_url}}" />
       <view wx:if="{{!item.isLocal}}" class="quick-add {{adding === item.qmingpian_person_id ? 'busy' : ''}}"
             data-hit="{{item}}"
             catchtap="onQuickAdd">

@@ -48,6 +48,32 @@
     </view>
   </view>
 
+  <view class="section" wx:if="{{qmingpianSummaries.length > 0}}">
+    <view class="section-title">投资人纪要 · 来自企名片</view>
+    <view wx:for="{{qmingpianSummaries}}" wx:key="created_at" class="qm-summary">
+      <view class="qm-head">
+        <view class="qm-creator">{{item.creator || '—'}}</view>
+        <view class="qm-time">{{item.created_at}}</view>
+      </view>
+      <view class="qm-content">{{item.content}}</view>
+    </view>
+  </view>
+
+  <view class="section" wx:if="{{qmingpianHistory.length > 0}}">
+    <view class="section-title">历史推荐 · 来自企名片</view>
+    <view wx:for="{{qmingpianHistory}}" wx:key="contact_time" class="qm-history">
+      <view class="qm-head">
+        <view class="qm-event">{{item.event}}</view>
+        <view wx:if="{{item.status}}" class="qm-status">{{item.status}}</view>
+      </view>
+      <view wx:if="{{item.feedback}}" class="qm-feedback">{{item.feedback}}</view>
+      <view class="qm-meta">
+        <text wx:if="{{item.round}}">{{item.round}}</text>
+        <text wx:if="{{item.contact_time}}"> · {{item.contact_time}}</text>
+      </view>
+    </view>
+  </view>
+
   <view class="bottom-bar">
     <view class="ask-btn" bindtap="onAskAgent">✦ 问 Agent 关于 {{investor.name}}</view>
   </view>
