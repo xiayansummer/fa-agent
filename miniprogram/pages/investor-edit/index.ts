@@ -257,18 +257,31 @@ Page<PageData, {}>({
         payload.qmingpian_tags = curTags;
       }
 
+      let resp: any;
       if (this.data.isEdit) {
-        await api.put(`/api/investors/${this.data.investorId}`, payload);
-        wx.showToast({ title: '已保存', icon: 'success' });
+        resp = await api.put<any>(`/api/investors/${this.data.investorId}`, payload);
       } else {
         // 加入我的库时带 qmingpian_person_id（跳过企名片 add）
         if (this.data.qmingpianPersonId) {
           payload.qmingpian_person_id = this.data.qmingpianPersonId;
         }
-        await api.post('/api/investors', payload);
-        wx.showToast({ title: '已创建', icon: 'success' });
+        resp = await api.post<any>('/api/investors', payload);
       }
-      setTimeout(() => wx.navigateBack(), 800);
+      const warnings: string[] = (resp && resp.qmingpian_warnings) || [];
+      if (warnings.length > 0) {
+        // 显示首条 warning（企名片同步失败但本地已保存）
+        wx.showModal({
+          title: '本地已保存，但企名片同步失败',
+          content: warnings.join('\n\n'),
+          showCancel: false,
+          confirmText: '知道了',
+        });
+      } else {
+        wx.showToast({ title: this.data.isEdit ? '已保存' : '已创建', icon: 'success' });
+        setTimeout(() => wx.navigateBack(), 800);
+        return;
+      }
+      setTimeout(() => wx.navigateBack(), 1500);
     } catch (e) {/* api toast handled */} finally {
       this.setData({ saving: false });
     }

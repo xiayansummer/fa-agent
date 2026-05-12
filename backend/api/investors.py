@@ -39,6 +39,8 @@ class InvestorOut(BaseModel):
     profile_notes: Optional[str] = None
     last_interaction_at: Optional[datetime] = None
     birthday: Optional[date_type] = None
+    # 仅在 POST/PUT 响应里有值：企名片同步过程中失败的项，前端可 toast
+    qmingpian_warnings: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -388,6 +390,7 @@ async def create_investor(
             raise HTTPException(status_code=502, detail=f"企名片新增失败: {e}")
 
     # 投资人标签写回企名片（本地不存）
+    warnings: list[str] = []
     if body.qmingpian_tags is not None and body.qmingpian_tags:
         try:
             await qmingpian_update_person_tags(
@@ -397,6 +400,7 @@ async def create_investor(
             )
         except Exception as e:
             logger.warning("qmingpian tags sync failed on create for %s: %s", body.name, e)
+            warnings.append(f"投资人标签未同步至企名片：{e}")
 
     # 本地插入（含扩展字段）
     investor = Investor(
@@ -422,7 +426,9 @@ async def create_investor(
     db.add(investor)
     await db.commit()
     await db.refresh(investor)
-    return investor
+    out = InvestorOut.model_validate(investor)
+    out.qmingpian_warnings = warnings
+    return out
 
 
 @router.put("/{investor_id}", response_model=InvestorOut)
@@ -446,9 +452,18 @@ async def update_investor(
     updates = body.model_dump(exclude_unset=True)
     # qmingpian_tags 不入本地表，单独处理
     qmingpian_tags_update = updates.pop("qmingpian_tags", None)
+    warnings: list[str] = []
 
-    # 1) 同步基本信息到企名片
-    qmingpian_changes = {k: v for k, v in updates.items() if k in _QMINGPIAN_FIELDS}
+    # 1) 同步基本信息到企名片：仅对真正变了的字段调 editPersonInfo；
+    # 失败降级为 warning，不阻塞本地保存（与熟悉度/标签回写一致）
+    qmingpian_changes = {}
+    for k in _QMINGPIAN_FIELDS:
+        if k not in updates:
+            continue
+        new_v = updates[k]
+        cur_v = getattr(investor, k, None)
+        if new_v != cur_v:
+            qmingpian_changes[k] = new_v
     if qmingpian_changes and investor.qmingpian_person_id:
         try:
             await qmingpian_edit_person(
@@ -461,7 +476,11 @@ async def update_investor(
                 position=qmingpian_changes.get("position") or "",
             )
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"企名片更新失败: {e}")
+            logger.warning(
+                "qmingpian edit_person failed for investor %s (changes=%s): %s",
+                investor_id, qmingpian_changes, e,
+            )
+            warnings.append(f"基本信息未同步至企名片：{e}")
 
     # 2) 熟悉度回写企名片（需要 IR 配置了 qmingpian_username）
     new_familiarity = updates.get("familiarity")
@@ -488,6 +507,7 @@ async def update_investor(
                     "qmingpian familiarity sync failed for investor %s: %s",
                     investor_id, e,
                 )
+                warnings.append(f"熟悉度未同步至企名片：{e}")
 
     # 3) 投资人标签回写企名片（updatePersonTag, 本地不存）
     if qmingpian_tags_update is not None:
@@ -504,13 +524,16 @@ async def update_investor(
                 "qmingpian tag sync failed for investor %s: %s",
                 investor_id, e,
             )
+            warnings.append(f"投资人标签未同步至企名片：{e}")
 
     # 4) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
     for field, value in updates.items():
         setattr(investor, field, value)
     await db.commit()
     await db.refresh(investor)
-    return investor
+    out = InvestorOut.model_validate(investor)
+    out.qmingpian_warnings = warnings
+    return out
 
 
 @router.delete("/{investor_id}")
