@@ -36,7 +36,8 @@
       class="card hit-card {{item.isLocal ? 'is-local' : ''}}"
       data-hit="{{item}}"
       bindtap="onHitTap">
-      <view class="avatar avatar-0">{{item.firstLetter}}</view>
+      <image wx:if="{{item.avatar_url}}" class="avatar avatar-img" src="{{item.avatar_url}}" mode="aspectFill" />
+      <view wx:else class="avatar avatar-0">{{item.firstLetter}}</view>
       <view class="info">
         <view class="row1">
           <view class="name">{{item.name}}</view>
@@ -64,7 +65,8 @@
       class="card"
       data-id="{{item.id}}"
       bindtap="onInvestorTap">
-      <view class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
+      <image wx:if="{{item.avatar_url}}" class="avatar avatar-img" src="{{item.avatar_url}}" mode="aspectFill" />
+      <view wx:else class="avatar avatar-{{item.id % 4}}">{{item.firstLetter}}</view>
       <view class="info">
         <view class="row1">
           <view class="name">{{item.name}}</view>
@@ -83,6 +85,6 @@
   </view>
 
   <view wx:if="{{!inSearchMode && investors.length > 0}}" class="footer">
-    最近接触 Top {{investors.length}} · ✦ 按上次沟通时间排序
+    共 {{investors.length}} 位投资人 · ✦ 按上次沟通时间排序
   </view>
 </view>

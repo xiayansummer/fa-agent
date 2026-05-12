@@ -13,6 +13,17 @@ page { background: var(--bg-base); }
   display: flex; align-items: center; justify-content: center;
   font-size: 56rpx; font-weight: 700;
 }
+.avatar.avatar-img {
+  background: #fff;
+}
+
+.card-section { padding: 16rpx 24rpx; }
+.business-card {
+  width: 100%;
+  border-radius: 12rpx;
+  display: block;
+  border: 1rpx solid var(--border-light);
+}
 .info { flex: 1; }
 .name { font-size: 40rpx; font-weight: 700; }
 .position { font-size: 26rpx; opacity: 0.9; margin-top: 8rpx; }

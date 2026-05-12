@@ -23,6 +23,8 @@ class InvestorOut(BaseModel):
     name: str
     agency: Optional[str] = None
     position: Optional[str] = None
+    avatar_url: Optional[str] = None
+    business_card_url: Optional[str] = None
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     relationship_score: int = 0
@@ -39,6 +41,8 @@ class SearchHitOut(BaseModel):
     name: str
     agency: Optional[str] = None
     local_id: Optional[int] = None   # 本地 fa_agent.investors.id；None 表示尚未加入本地库
+    avatar_url: Optional[str] = None       # 仅本地已有时返回
+    business_card_url: Optional[str] = None  # 仅本地已有时返回
 
 
 class InvestorListOut(BaseModel):
@@ -61,6 +65,8 @@ class InvestorCreate(BaseModel):
     wechat: Optional[list] = None
     phone: Optional[list] = None
     # 仅本地的业务画像
+    avatar_url: Optional[str] = None
+    business_card_url: Optional[str] = None
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     quota_range: Optional[str] = None
@@ -82,6 +88,8 @@ class InvestorUpdate(BaseModel):
     wechat: Optional[list] = None
     phone: Optional[list] = None
     # 仅本地字段
+    avatar_url: Optional[str] = None
+    business_card_url: Optional[str] = None
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     quota_range: Optional[str] = None
@@ -105,13 +113,13 @@ _QMINGPIAN_FIELDS = {"name", "agency", "position", "email", "wechat", "phone"}
 async def list_investors(
     stage: Optional[str] = Query(None, description="阶段筛选，匹配 stage_pref"),
     industry: Optional[str] = Query(None, description="行业筛选，匹配 industry_tags"),
-    limit: int = Query(20, ge=1, le=100, description="返回条数，默认 Top 20"),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="可选限制返回条数；不传则全部"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_ir),
 ):
     """
-    "我的库" 视图：本地 investors 表里 is_active=true 的投资人，按 last_interaction_at 倒序取 Top N。
-    搜索请用 /api/investors/search?q= 接口（调企名片）。
+    "我的库" 视图：本地 investors 表里 is_active=true 的投资人，按 last_interaction_at 倒序。
+    默认返回全部；可选 limit 限制条数。搜索请用 /api/investors/search?q=。
     """
     stmt = select(Investor).where(Investor.is_active == True)
     if stage:
@@ -122,7 +130,9 @@ async def list_investors(
     stmt = stmt.order_by(
         Investor.last_interaction_at.is_(None).asc(),
         Investor.last_interaction_at.desc(),
-    ).limit(limit)
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     investors = result.scalars().all()
     return InvestorListOut(items=list(investors), total=len(investors))
@@ -143,28 +153,40 @@ async def search_investors(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"企名片搜索失败: {e}")
 
-    # 查本地 investors 表里这些 person_id 已经有了哪些
+    # 查本地 investors 表里这些 person_id 的本地 id + avatar + 名片
     person_ids = [h.get("person_id") for h in hits if h.get("person_id")]
-    local_map: dict[str, int] = {}
+    local_map: dict[str, dict] = {}
     if person_ids:
         local_result = await db.execute(
-            select(Investor.id, Investor.qmingpian_person_id)
+            select(
+                Investor.id,
+                Investor.qmingpian_person_id,
+                Investor.avatar_url,
+                Investor.business_card_url,
+            )
             .where(Investor.qmingpian_person_id.in_(person_ids))
             .where(Investor.is_active == True)
         )
         for row in local_result.all():
-            local_map[row.qmingpian_person_id] = row.id
+            local_map[row.qmingpian_person_id] = {
+                "id": row.id,
+                "avatar_url": row.avatar_url,
+                "business_card_url": row.business_card_url,
+            }
 
     items = []
     for h in hits:
         pid = h.get("person_id")
         if not pid:
             continue
+        local_info = local_map.get(pid)
         items.append(SearchHitOut(
             qmingpian_person_id=pid,
             name=h.get("name", ""),
             agency=h.get("agency"),
-            local_id=local_map.get(pid),
+            local_id=local_info["id"] if local_info else None,
+            avatar_url=local_info["avatar_url"] if local_info else None,
+            business_card_url=local_info["business_card_url"] if local_info else None,
         ))
     return SearchListOut(items=items, total=len(items))
 
@@ -231,6 +253,8 @@ async def create_investor(
         email=body.email,
         wechat=body.wechat,
         phone=body.phone,
+        avatar_url=body.avatar_url,
+        business_card_url=body.business_card_url,
         industry_tags=body.industry_tags,
         stage_pref=body.stage_pref,
         quota_range=body.quota_range,

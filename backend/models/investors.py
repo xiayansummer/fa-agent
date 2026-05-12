@@ -9,6 +9,8 @@ class Investor(Base):
     qmingpian_person_id = Column(String(64), unique=True, nullable=True)  # 企名片主键
     name                = Column(String(100), nullable=False)
     agency              = Column(String(100))
+    avatar_url          = Column(String(500), nullable=True)  # 头像 URL（Qiniu）
+    business_card_url   = Column(String(500), nullable=True)  # 名片图片 URL（Qiniu）
     position            = Column(String(100))
     email               = Column(JSON)
     wechat              = Column(JSON)

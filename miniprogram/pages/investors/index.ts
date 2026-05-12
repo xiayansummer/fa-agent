@@ -8,6 +8,8 @@ interface LocalInvestor {
   name: string;
   agency?: string;
   position?: string;
+  avatar_url?: string;
+  business_card_url?: string;
   industry_tags?: string[];
   stage_pref?: string[];
   relationship_score: number;
@@ -19,6 +21,8 @@ interface SearchHit {
   name: string;
   agency?: string;
   local_id: number | null;
+  avatar_url?: string;
+  business_card_url?: string;
 }
 
 interface PageData {
@@ -62,7 +66,8 @@ Page<PageData, {}>({
   async _loadLocal() {
     this.setData({ loading: true });
     try {
-      const params: string[] = ['limit=20'];
+      // 不传 limit → 后端返回全部 is_active 投资人
+      const params: string[] = [];
       if (this.data.selectedTags.length > 0) {
         const tag = this.data.selectedTags[0];
         if (['A轮', 'B轮', 'C轮'].includes(tag)) {
@@ -71,9 +76,8 @@ Page<PageData, {}>({
           params.push(`industry=${encodeURIComponent(tag)}`);
         }
       }
-      const data = await api.get<{ items: LocalInvestor[]; total: number }>(
-        `/api/investors?${params.join('&')}`
-      );
+      const url = '/api/investors' + (params.length ? '?' + params.join('&') : '');
+      const data = await api.get<{ items: LocalInvestor[]; total: number }>(url);
 
       const investors = (data.items || []).map((inv: any) => ({
         ...inv,

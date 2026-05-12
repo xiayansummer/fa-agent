@@ -26,6 +26,28 @@
   </view>
 
   <view class="section">
+    <view class="section-title">头像 / 名片</view>
+    <view class="img-pickers">
+      <view class="img-picker">
+        <view class="img-picker-label">头像</view>
+        <view wx:if="{{form.avatar_url}}" class="img-thumb-wrap">
+          <image class="img-thumb circular" src="{{form.avatar_url}}" mode="aspectFill" />
+          <view class="img-clear" catchtap="onClearAvatar">×</view>
+        </view>
+        <view wx:else class="img-add" bindtap="onPickAvatar">+ 上传头像</view>
+      </view>
+      <view class="img-picker">
+        <view class="img-picker-label">名片</view>
+        <view wx:if="{{form.business_card_url}}" class="img-thumb-wrap">
+          <image class="img-thumb" src="{{form.business_card_url}}" mode="aspectFit" />
+          <view class="img-clear" catchtap="onClearCard">×</view>
+        </view>
+        <view wx:else class="img-add" bindtap="onPickCard">+ 上传名片</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
     <view class="section-title">行业标签</view>
     <view class="tag-grid">
       <view

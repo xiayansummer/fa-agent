@@ -4,6 +4,8 @@ interface FormState {
   name: string;
   agency: string;
   position: string;
+  avatar_url: string;
+  business_card_url: string;
   relationship_score: number;
   industry_tags: string[];
   stage_pref: string[];
@@ -34,6 +36,8 @@ Page<PageData, {}>({
       name: '',
       agency: '',
       position: '',
+      avatar_url: '',
+      business_card_url: '',
       relationship_score: 0,
       industry_tags: [],
       stage_pref: [],
@@ -72,6 +76,8 @@ Page<PageData, {}>({
           name: inv.name || '',
           agency: inv.agency || '',
           position: inv.position || '',
+          avatar_url: inv.avatar_url || '',
+          business_card_url: inv.business_card_url || '',
           relationship_score: inv.relationship_score || 0,
           industry_tags: inv.industry_tags || [],
           stage_pref: inv.stage_pref || [],
@@ -136,6 +142,67 @@ Page<PageData, {}>({
     } catch (e) {/* api toast handled */} finally {
       this.setData({ saving: false });
     }
+  },
+
+  async _uploadImage(purpose: 'image'): Promise<string | null> {
+    const file = await new Promise<any>((resolve) => {
+      wx.chooseImage({
+        count: 1,
+        sizeType: ['compressed'],
+        sourceType: ['album', 'camera'],
+        success: r => resolve(r.tempFiles[0]),
+        fail: () => resolve(null),
+      });
+    });
+    if (!file) return null;
+    if (file.size > 20 * 1024 * 1024) {
+      wx.showToast({ title: '图片超过 20MB', icon: 'none' });
+      return null;
+    }
+    wx.showLoading({ title: '上传中...' });
+    try {
+      const token = await api.post<{ token: string; key: string; upload_url: string }>(
+        '/api/upload/token',
+        { purpose, filename: file.path.split('/').pop() || 'image.jpg' }
+      );
+      await new Promise<void>((resolve, reject) => {
+        wx.uploadFile({
+          url: token.upload_url,
+          filePath: file.path,
+          name: 'file',
+          formData: { token: token.token, key: token.key },
+          success: r => r.statusCode === 200 ? resolve() : reject(new Error('upload ' + r.statusCode)),
+          fail: (err) => reject(new Error(err.errMsg)),
+        });
+      });
+      const sign = await api.get<{ url: string }>(
+        `/api/upload/sign?key=${encodeURIComponent(token.key)}&expires=86400`
+      );
+      wx.hideLoading();
+      return sign.url;
+    } catch (e: any) {
+      wx.hideLoading();
+      wx.showToast({ title: e?.message || '上传失败', icon: 'none' });
+      return null;
+    }
+  },
+
+  async onPickAvatar() {
+    const url = await this._uploadImage('image');
+    if (url) this.setData({ 'form.avatar_url': url });
+  },
+
+  async onPickCard() {
+    const url = await this._uploadImage('image');
+    if (url) this.setData({ 'form.business_card_url': url });
+  },
+
+  onClearAvatar() {
+    this.setData({ 'form.avatar_url': '' });
+  },
+
+  onClearCard() {
+    this.setData({ 'form.business_card_url': '' });
   },
 
   async onDelete() {

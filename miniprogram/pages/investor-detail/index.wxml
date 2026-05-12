@@ -1,6 +1,7 @@
 <view class="detail" wx:if="{{investor}}">
   <view class="header">
-    <view class="avatar">{{investor.name[0]}}</view>
+    <image wx:if="{{investor.avatar_url}}" class="avatar avatar-img" src="{{investor.avatar_url}}" mode="aspectFill" />
+    <view wx:else class="avatar">{{investor.name[0]}}</view>
     <view class="info">
       <view class="name">{{investor.name}}</view>
       <view class="position">{{investor.agency || ''}}{{investor.position ? ' · ' + investor.position : ''}}</view>
@@ -14,6 +15,16 @@
 
   <view class="tag-row" wx:if="{{investor.industry_tags && investor.industry_tags.length > 0}}">
     <view wx:for="{{investor.industry_tags}}" wx:key="*this" class="tag">{{item}}</view>
+  </view>
+
+  <view class="section card-section" wx:if="{{investor.business_card_url}}">
+    <view class="section-title">名片</view>
+    <image
+      class="business-card"
+      src="{{investor.business_card_url}}"
+      mode="widthFix"
+      bindtap="previewCard"
+      data-url="{{investor.business_card_url}}" />
   </view>
 
   <view class="section" wx:if="{{profileLines.length > 0}}">

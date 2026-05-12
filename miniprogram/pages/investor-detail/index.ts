@@ -103,4 +103,10 @@ Page<PageData, {}>({
   onAddInteraction() {
     wx.navigateTo({ url: `/pages/interaction-new/index?investor_id=${this.data.investorId}` });
   },
+
+  previewCard(e: WechatMiniprogram.TouchEvent) {
+    const url = e.currentTarget.dataset.url as string;
+    if (!url) return;
+    wx.previewImage({ urls: [url], current: url });
+  },
 });
