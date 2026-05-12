@@ -14,6 +14,10 @@ interface PageData {
   pasteText: string;
   loading: boolean;
   loadingTencent: boolean;
+  /** 从日历点过来携带的会议 ID，未拿到录制时保留供 banner 显示 */
+  pendingMeetingId: string;
+  /** 已确认该会议无云录制 */
+  noRecording: boolean;
 }
 
 Page<PageData, {}>({
@@ -23,6 +27,8 @@ Page<PageData, {}>({
     pasteText: '',
     loading: false,
     loadingTencent: false,
+    pendingMeetingId: '',
+    noRecording: false,
   },
 
   onLoad(opts: { investor_id?: string; investor_ids?: string; meeting_id?: string }) {
@@ -30,11 +36,32 @@ Page<PageData, {}>({
     if (opts.investor_id) ids = [parseInt(opts.investor_id)];
     if (opts.investor_ids) ids = opts.investor_ids.split(',').map(Number).filter(Boolean);
     this.setData({ investorIds: ids });
-    // 日历点击带 meeting_id 进来 → 直接发起腾讯纪要 workflow（异步触发，避免阻塞 onLoad）
     if (opts.meeting_id) {
       const mid = decodeURIComponent(opts.meeting_id);
-      wx.showLoading({ title: '唤起腾讯纪要...', mask: true });
-      setTimeout(() => this._runWithTencent(mid).finally(() => wx.hideLoading()), 50);
+      this.setData({ pendingMeetingId: mid });
+      setTimeout(() => this._probeAndRun(mid), 50);
+    }
+  },
+
+  /** 带 meeting_id 进入页面：先探测云录制 → 有则自动发起腾讯纪要；无则显示 banner 留在本页让用户选其他模式。 */
+  async _probeAndRun(meetingId: string) {
+    wx.showLoading({ title: '检查云录制...', mask: true });
+    try {
+      const res = await api.get<{ has_recording: boolean }>(
+        `/api/me/tencent/meetings/${encodeURIComponent(meetingId)}/records`,
+        { silent: true },
+      );
+      wx.hideLoading();
+      if (res && res.has_recording) {
+        await this._runWithTencent(meetingId);
+      } else {
+        this.setData({ noRecording: true });
+        wx.showToast({ title: '此会议无云录制', icon: 'none', duration: 1500 });
+      }
+    } catch (e) {
+      wx.hideLoading();
+      // 探测失败也降级为"无录制"，提示用户用其他模式
+      this.setData({ noRecording: true });
     }
   },
 

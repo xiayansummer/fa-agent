@@ -122,6 +122,37 @@ async def test_tencent_token(
     )
 
 
+class MeetingRecordCheck(BaseModel):
+    meeting_id: str
+    has_recording: bool
+
+
+@router.get("/tencent/meetings/{meeting_id}/records", response_model=MeetingRecordCheck)
+async def check_meeting_recording(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """单场会议是否开了云录制——前端在自动发起腾讯纪要前先探测。"""
+    result = await db.execute(select(IRUser).where(IRUser.id == current_ir["ir_id"]))
+    user = result.scalar_one_or_none()
+    if not user or not user.tencent_meeting_token_encrypted:
+        raise HTTPException(status_code=422, detail="请先在「我」-「腾讯会议接入」配置 token")
+    try:
+        token = crypto_service.decrypt(user.tencent_meeting_token_encrypted)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="token 解密失败，请重新配置")
+    client = TencentMeetingClient(token=token)
+    try:
+        records = await client.get_records_list(meeting_id)
+        has_rec = len(records) > 0
+    except TencentToolError:
+        has_rec = False
+    except TencentAuthError:
+        raise HTTPException(status_code=401, detail="腾讯会议 token 已失效，请重新配置")
+    return MeetingRecordCheck(meeting_id=meeting_id, has_recording=has_rec)
+
+
 class TencentMeetingItem(BaseModel):
     meeting_id: str
     subject: str

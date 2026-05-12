@@ -1,7 +1,15 @@
 <view class="page">
   <view class="title">选择音频/文字来源</view>
 
-  <view class="mode-card" bindtap="onTencentTap">
+  <view wx:if="{{noRecording}}" class="no-rec-banner">
+    <view class="no-rec-icon">⚠️</view>
+    <view class="no-rec-body">
+      <view class="no-rec-title">未获取到会议纪要</view>
+      <view class="no-rec-desc">该会议未开启云录制，请改用「上传音频」或「粘贴文字稿」生成纪要。</view>
+    </view>
+  </view>
+
+  <view class="mode-card {{noRecording ? 'disabled' : ''}}" bindtap="onTencentTap">
     <view class="mode-icon">🎯</view>
     <view class="mode-body">
       <view class="mode-title">从腾讯会议拉取</view>
