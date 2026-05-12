@@ -30,9 +30,11 @@ Page<PageData, {}>({
     if (opts.investor_id) ids = [parseInt(opts.investor_id)];
     if (opts.investor_ids) ids = opts.investor_ids.split(',').map(Number).filter(Boolean);
     this.setData({ investorIds: ids });
-    // 日历点击带 meeting_id 进来 → 直接发起腾讯纪要 workflow
+    // 日历点击带 meeting_id 进来 → 直接发起腾讯纪要 workflow（异步触发，避免阻塞 onLoad）
     if (opts.meeting_id) {
-      this._runWithTencent(decodeURIComponent(opts.meeting_id));
+      const mid = decodeURIComponent(opts.meeting_id);
+      wx.showLoading({ title: '唤起腾讯纪要...', mask: true });
+      setTimeout(() => this._runWithTencent(mid).finally(() => wx.hideLoading()), 50);
     }
   },
 

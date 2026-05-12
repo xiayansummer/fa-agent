@@ -1,3 +1,4 @@
+import asyncio
 import calendar as _calendar
 import json
 import logging
@@ -68,17 +69,21 @@ async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
     client = TencentMeetingClient(token=token)
     items: list[dict] = []
     now = datetime.now()
+    # 5s 硬超时保护：腾讯偶发慢时降级返回空，不拖垮日历端点
     try:
-        ended = await client.list_ended_meetings(
-            start_time=(now - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S"),
-            end_time=now.strftime("%Y-%m-%d %H:%M:%S"),
+        ended = await asyncio.wait_for(
+            client.list_ended_meetings(
+                start_time=(now - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S"),
+                end_time=now.strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+            timeout=5.0,
         )
-    except (TencentAuthError, TencentToolError, Exception) as e:
+    except (TencentAuthError, TencentToolError, asyncio.TimeoutError, Exception) as e:
         logger.warning("tencent list_ended_meetings failed for ir %s: %s", ir_id, e)
         ended = []
     try:
-        upcoming = await client.list_upcoming_meetings()
-    except (TencentAuthError, TencentToolError, Exception) as e:
+        upcoming = await asyncio.wait_for(client.list_upcoming_meetings(), timeout=5.0)
+    except (TencentAuthError, TencentToolError, asyncio.TimeoutError, Exception) as e:
         logger.warning("tencent list_upcoming_meetings failed for ir %s: %s", ir_id, e)
         upcoming = []
 
