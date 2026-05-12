@@ -196,42 +196,35 @@ async def search_investors(
 
 
 class EnrichedQmingpianOut(BaseModel):
-    """从企名片 exportPersonOpen 拉取的详情（用于'加入我的库'时预填）。
-    当前 exportPersonOpen 接口在调用方权限/参数确认前返回错误，
-    本端点会捕获错误并返回 200 + 空字段，便于前端 graceful degradation。"""
-    name: Optional[str] = None
+    """从企名片 exportPersonOpen 拉取的详情（xlsx 解析）。
+
+    企名片该接口返回 xlsx，表头：机构/手机/邮箱/FAwork行业。
+    只能查到当前 open_id 范围内的人（自己加过或被共享）。
+    """
     agency: Optional[str] = None
-    position: Optional[str] = None
-    avatar_url: Optional[str] = None
-    business_card_url: Optional[str] = None
-    profile_notes: Optional[str] = None
-    raw: Optional[dict] = None  # 调试用：返回企名片原始数据
+    phone: Optional[list] = None
+    email: Optional[list] = None
+    industry: Optional[str] = None
 
 
-@router.get("/qmingpian/{person_id}", response_model=EnrichedQmingpianOut)
+@router.get("/qmingpian/by-name", response_model=EnrichedQmingpianOut)
 async def enrich_from_qmingpian(
-    person_id: str,
+    person_name: str = Query(..., min_length=1, description="投资人姓名"),
     _: dict = Depends(get_current_ir),
 ):
-    """尝试从企名片 exportPersonOpen 拉取投资人详情。
-    当前接口对调用方返回'参数错误'（status:1），可能需要不同的鉴权或参数；
-    在企名片侧确认前保留空返回。"""
+    """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业）。
+    查不到（不在 open_id 范围内）时返回 200 + 空字段。"""
     try:
-        data = await qmingpian_export_person(person_id)
+        data = await qmingpian_export_person(person_name)
     except Exception:
         return EnrichedQmingpianOut()
     if not data or not isinstance(data, dict):
         return EnrichedQmingpianOut()
-    # 等企名片确认字段名后再 map：
-    # data 可能包含 name / agency / position / avatar / card_image / summary / ...
     return EnrichedQmingpianOut(
-        name=data.get("name"),
         agency=data.get("agency"),
-        position=data.get("position"),
-        avatar_url=data.get("avatar") or data.get("avatar_url"),
-        business_card_url=data.get("card_image") or data.get("business_card") or data.get("business_card_url"),
-        profile_notes=data.get("summary") or data.get("profile") or data.get("note"),
-        raw=data,
+        phone=data.get("phone"),
+        email=data.get("email"),
+        industry=data.get("industry"),
     )
 
 

@@ -72,28 +72,28 @@ Page<PageData, {}>({
         'form.agency': agency,
       });
       wx.setNavigationBarTitle({ title: '加入我的库' });
-      // 尝试从后端 enrich（如果后端 exportPersonOpen 拉到了 position/avatar/card 等字段）
-      this._enrichFromQmingpian(personId);
+      // 按姓名从企名片 enrich（机构/手机/邮箱/行业）
+      this._enrichFromQmingpian(name);
     } else {
       wx.setNavigationBarTitle({ title: '新增投资人' });
     }
   },
 
-  async _enrichFromQmingpian(personId: string) {
+  async _enrichFromQmingpian(personName: string) {
+    if (!personName) return;
     try {
-      const enriched = await api.get<any>(
-        `/api/investors/qmingpian/${encodeURIComponent(personId)}`,
-        { silent: true }
-      );
+      const enriched = await api.get<{
+        agency?: string; phone?: string[]; email?: string[]; industry?: string;
+      }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
+         { silent: true });
       if (!enriched) return;
       const patch: any = {};
-      if (enriched.position) patch['form.position'] = enriched.position;
-      if (enriched.avatar_url) patch['form.avatar_url'] = enriched.avatar_url;
-      if (enriched.business_card_url) patch['form.business_card_url'] = enriched.business_card_url;
-      if (enriched.profile_notes) patch['form.profile_notes'] = enriched.profile_notes;
+      // 注意：只在表单为空时回填，避免覆盖用户已输入的
+      if (enriched.agency && !this.data.form.agency) patch['form.agency'] = enriched.agency;
+      // phone 字段类型 list — Form 里没有，先不处理（如果将来加 phone 输入框可补）
       if (Object.keys(patch).length) this.setData(patch);
     } catch {
-      // exportPersonOpen 当前调不通，静默失败
+      // 静默失败（人不在 open_id 范围内，或接口暂不可用）
     }
   },
 
