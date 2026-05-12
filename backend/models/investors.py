@@ -11,6 +11,7 @@ class Investor(Base):
     agency              = Column(String(100))
     avatar_url          = Column(String(500), nullable=True)  # 头像 URL（Qiniu）
     business_card_url   = Column(String(500), nullable=True)  # 名片图片 URL（Qiniu）
+    familiarity         = Column(String(30), nullable=True)   # 熟悉度：未接触/加过微信/见过面/了解投资偏好/跟进过我们的项目/好友
     position            = Column(String(100))
     email               = Column(JSON)
     wechat              = Column(JSON)

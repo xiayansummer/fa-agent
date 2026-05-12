@@ -13,3 +13,4 @@ class IRUser(Base):
     is_active                       = Column(Boolean, default=True)
     created_at                      = Column(DateTime, server_default=func.now())
     tencent_meeting_token_encrypted = Column(LargeBinary(512), nullable=True)
+    qmingpian_username              = Column(String(100), nullable=True)  # PC 端企名片登录用户名（如 'Investarget'）

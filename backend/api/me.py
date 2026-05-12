@@ -20,6 +20,14 @@ class MeResponse(BaseModel):
     role: str
     wechat_openid: Optional[str] = None
     tencent_bound: bool
+    qmingpian_username: Optional[str] = None
+
+
+class MeUpdate(BaseModel):
+    """用户自己能改的字段（不含 phone — phone 绑定后不可改）。"""
+    name: Optional[str] = None
+    qmingpian_username: Optional[str] = None
+
 
 @router.get("", response_model=MeResponse)
 async def get_me(
@@ -38,6 +46,34 @@ async def get_me(
         role=user.role,
         wechat_openid=user.wechat_openid,
         tencent_bound=bool(user.tencent_meeting_token_encrypted),
+        qmingpian_username=user.qmingpian_username,
+    )
+
+
+@router.put("", response_model=MeResponse)
+async def update_me(
+    body: MeUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """IR 自己更新部分信息（名字 / 企名片用户名）。手机号不可改。"""
+    result = await db.execute(select(IRUser).where(IRUser.id == current_ir["ir_id"]))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(user, field, value)
+    await db.commit()
+    await db.refresh(user)
+    return MeResponse(
+        id=user.id,
+        name=user.name,
+        phone=user.phone,
+        role=user.role,
+        wechat_openid=user.wechat_openid,
+        tencent_bound=bool(user.tencent_meeting_token_encrypted),
+        qmingpian_username=user.qmingpian_username,
     )
 
 

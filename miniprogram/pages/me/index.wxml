@@ -3,31 +3,75 @@
     <view class="avatar">{{user.name[0]}}</view>
     <view class="info">
       <view class="name">{{user.name}}</view>
-      <view class="role">{{user.role === 'admin' ? '管理员' : 'IR'}}{{user.phone ? ' · ' + user.phone : ''}}</view>
+      <view class="role">{{user.role === 'admin' ? '管理员' : 'IR'}}</view>
     </view>
   </view>
 
   <view class="section">
-    <view class="item" bindtap="goTencentSetup">
-      <view class="item-icon">🎯</view>
-      <view class="item-label">腾讯会议接入</view>
-      <view class="item-value {{user.tencent_bound ? 'bound' : 'unbound'}}">
-        {{user.tencent_bound ? '已配置' : '未配置'}}
+    <view class="section-title">基本信息</view>
+    <view class="row">
+      <view class="label">姓名</view>
+      <input class="input" value="{{nameEdit}}" bindinput="onNameInput" bindblur="onSaveName" placeholder="姓名" />
+      <view wx:if="{{savingName}}" class="saving">...</view>
+    </view>
+    <view class="row">
+      <view class="label">手机号</view>
+      <view class="value-readonly">{{user.phone || '未绑定'}}</view>
+      <view class="hint">绑定后不可改</view>
+    </view>
+    <view class="row">
+      <view class="label">企名片用户名</view>
+      <input class="input" value="{{qmingpianEdit}}" bindinput="onQmingpianInput" bindblur="onSaveQmingpian" placeholder="如：Investarget" />
+      <view wx:if="{{savingQmingpian}}" class="saving">...</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">腾讯会议接入</view>
+    <view class="status-row">
+      <view class="status-label">当前状态</view>
+      <view class="status-value {{user.tencent_bound ? 'bound' : 'unbound'}}">
+        {{user.tencent_bound ? '✓ 已配置' : '未配置'}}
       </view>
-      <view class="item-arrow">›</view>
     </view>
 
+    <view class="help-block">
+      <view class="help-line">访问 AI Skill 页面获取 Token</view>
+      <view class="link-btn" bindtap="openAiSkill">复制 meeting.tencent.com/ai-skill</view>
+    </view>
+
+    <input
+      class="token-input"
+      value="{{tencentTokenEdit}}"
+      bindinput="onTencentTokenInput"
+      placeholder="{{user.tencent_bound ? '已保存（输入新 token 可替换）' : '粘贴 Token...'}}" />
+
+    <view class="btn-row">
+      <view class="btn ghost {{tencentTesting ? 'disabled' : ''}}" bindtap="{{tencentTesting ? '' : 'onTencentTest'}}">
+        {{tencentTesting ? '测试中...' : '测试连接'}}
+      </view>
+      <view class="btn primary {{tencentSaving ? 'disabled' : ''}}" bindtap="{{tencentSaving ? '' : 'onTencentSave'}}">
+        {{tencentSaving ? '保存中...' : '保存'}}
+      </view>
+    </view>
+    <view wx:if="{{tencentTestResult}}" class="test-result {{tencentTestOk ? 'ok' : 'fail'}}">
+      {{tencentTestResult}}
+    </view>
+
+    <view class="warning-block">
+      <view class="warn-title">⚠️ 拉取智能纪要需要会议开启云录制</view>
+      <view class="link-btn" bindtap="openCloudRecordingDoc">复制：如何开启云录制</view>
+    </view>
+  </view>
+
+  <view class="section">
     <view class="item" bindtap="goDrafts">
       <view class="item-icon">📋</view>
       <view class="item-label">我的草稿历史</view>
-      <view class="item-value"></view>
       <view class="item-arrow">›</view>
     </view>
-  </view>
-
-  <view class="section">
     <view class="item logout" bindtap="onLogout">
-      <view class="item-icon">⚙️</view>
+      <view class="item-icon">🚪</view>
       <view class="item-label">退出登录</view>
     </view>
   </view>

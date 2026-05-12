@@ -6,12 +6,15 @@ interface FormState {
   position: string;
   avatar_url: string;
   business_card_url: string;
+  familiarity: string;
   relationship_score: number;
   industry_tags: string[];
   stage_pref: string[];
   profile_notes: string;
   birthday: string;
 }
+
+const FAMILIARITY_OPTIONS = ['未接触', '加过微信', '见过面', '了解投资偏好', '跟进过我们的项目', '好友'];
 
 interface PageData {
   isEdit: boolean;
@@ -22,6 +25,7 @@ interface PageData {
   saving: boolean;
   industryOptions: string[];
   stageOptions: string[];
+  familiarityOptions: string[];
 }
 
 const INDUSTRY_OPTS = ['消费', 'TMT', '医疗', 'AI', 'SaaS', '硬件', '教育', '金融'];
@@ -38,6 +42,7 @@ Page<PageData, {}>({
       position: '',
       avatar_url: '',
       business_card_url: '',
+      familiarity: '',
       relationship_score: 0,
       industry_tags: [],
       stage_pref: [],
@@ -47,6 +52,7 @@ Page<PageData, {}>({
     saving: false,
     industryOptions: INDUSTRY_OPTS,
     stageOptions: STAGE_OPTS,
+    familiarityOptions: FAMILIARITY_OPTIONS,
   },
 
   onLoad(opts: { id?: string; qmingpian_person_id?: string; name?: string; agency?: string }) {
@@ -78,6 +84,7 @@ Page<PageData, {}>({
           position: inv.position || '',
           avatar_url: inv.avatar_url || '',
           business_card_url: inv.business_card_url || '',
+          familiarity: inv.familiarity || '',
           relationship_score: inv.relationship_score || 0,
           industry_tags: inv.industry_tags || [],
           stage_pref: inv.stage_pref || [],
@@ -104,6 +111,13 @@ Page<PageData, {}>({
     const list = this.data.form[field] || [];
     const next = list.includes(tag) ? list.filter(t => t !== tag) : [...list, tag];
     this.setData({ [`form.${field}`]: next });
+  },
+
+  onFamiliarityTap(e: WechatMiniprogram.TouchEvent) {
+    const value = e.currentTarget.dataset.value as string;
+    // 再次点击同一个 → 取消（设为 ""）
+    const next = this.data.form.familiarity === value ? '' : value;
+    this.setData({ 'form.familiarity': next });
   },
 
   onBirthdayChange(e: WechatMiniprogram.PickerChange) {

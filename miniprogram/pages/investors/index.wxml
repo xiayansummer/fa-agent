@@ -74,6 +74,7 @@
         </view>
         <view class="row2">{{item.agencyPosition || '—'}}</view>
         <view class="tags">
+          <view wx:if="{{item.familiarity}}" class="mini-tag fam">{{item.familiarity}}</view>
           <view wx:for="{{item.industry_tags}}" wx:for-item="t" wx:key="*this" class="mini-tag">{{t}}</view>
         </view>
       </view>

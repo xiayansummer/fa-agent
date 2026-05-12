@@ -37,6 +37,15 @@ page { background: var(--bg-base); }
   border-radius: 8rpx;
 }
 
+.meta-row { display: flex; gap: 12rpx; padding: 24rpx 32rpx; flex-wrap: wrap; align-items: center; }
+.familiarity-chip {
+  background: #f59e0b;
+  color: #fff;
+  padding: 8rpx 20rpx;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+}
 .tag-row { display: flex; gap: 12rpx; padding: 24rpx 32rpx; flex-wrap: wrap; }
 .tag {
   background: #e0e7ff; color: #6B7AFF;

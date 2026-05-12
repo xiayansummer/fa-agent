@@ -25,6 +25,7 @@ class InvestorOut(BaseModel):
     position: Optional[str] = None
     avatar_url: Optional[str] = None
     business_card_url: Optional[str] = None
+    familiarity: Optional[str] = None
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     relationship_score: int = 0
@@ -67,6 +68,7 @@ class InvestorCreate(BaseModel):
     # 仅本地的业务画像
     avatar_url: Optional[str] = None
     business_card_url: Optional[str] = None
+    familiarity: Optional[str] = None
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     quota_range: Optional[str] = None
@@ -90,6 +92,7 @@ class InvestorUpdate(BaseModel):
     # 仅本地字段
     avatar_url: Optional[str] = None
     business_card_url: Optional[str] = None
+    familiarity: Optional[str] = None
     industry_tags: Optional[list] = None
     stage_pref: Optional[list] = None
     quota_range: Optional[str] = None
@@ -255,6 +258,7 @@ async def create_investor(
         phone=body.phone,
         avatar_url=body.avatar_url,
         business_card_url=body.business_card_url,
+        familiarity=body.familiarity,
         industry_tags=body.industry_tags,
         stage_pref=body.stage_pref,
         quota_range=body.quota_range,

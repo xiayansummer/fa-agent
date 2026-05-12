@@ -37,6 +37,10 @@
       {
         "pagePath": "pages/investors/index",
         "text": "👥 投资人"
+      },
+      {
+        "pagePath": "pages/me/index",
+        "text": "⚙️ 我"
       }
     ]
   },

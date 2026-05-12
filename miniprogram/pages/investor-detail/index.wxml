@@ -13,7 +13,8 @@
     <view class="edit-btn" bindtap="onEdit">编辑</view>
   </view>
 
-  <view class="tag-row" wx:if="{{investor.industry_tags && investor.industry_tags.length > 0}}">
+  <view class="meta-row">
+    <view wx:if="{{investor.familiarity}}" class="familiarity-chip">{{investor.familiarity}}</view>
     <view wx:for="{{investor.industry_tags}}" wx:key="*this" class="tag">{{item}}</view>
   </view>
 

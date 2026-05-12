@@ -26,6 +26,18 @@
   </view>
 
   <view class="section">
+    <view class="section-title">熟悉度</view>
+    <view class="tag-grid">
+      <view
+        wx:for="{{familiarityOptions}}"
+        wx:key="*this"
+        class="tag {{form.familiarity === item ? 'selected' : ''}}"
+        data-value="{{item}}"
+        bindtap="onFamiliarityTap">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="section">
     <view class="section-title">头像 / 名片</view>
     <view class="img-pickers">
       <view class="img-picker">

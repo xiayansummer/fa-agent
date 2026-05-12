@@ -10,6 +10,7 @@ interface LocalInvestor {
   position?: string;
   avatar_url?: string;
   business_card_url?: string;
+  familiarity?: string;
   industry_tags?: string[];
   stage_pref?: string[];
   relationship_score: number;
