@@ -5,10 +5,6 @@
     <view class="info">
       <view class="name">{{investor.name}}</view>
       <view class="position">{{investor.agency || ''}}{{investor.position ? ' · ' + investor.position : ''}}</view>
-      <view class="score">
-        关系值：
-        <text wx:for="{{[1,2,3,4,5]}}" wx:key="*this" class="dot {{item <= investor.relationship_score ? 'on' : ''}}">●</text>
-      </view>
     </view>
     <view class="edit-btn" bindtap="onEdit">编辑</view>
   </view>

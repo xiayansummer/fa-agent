@@ -12,17 +12,6 @@
       <view class="label">职务</view>
       <input class="input" value="{{form.position}}" data-field="position" bindinput="onField" placeholder="如：合伙人" />
     </view>
-    <view class="row">
-      <view class="label">关系值</view>
-      <view class="score-bar">
-        <view
-          wx:for="{{[1,2,3,4,5]}}"
-          wx:key="*this"
-          class="score-dot {{item <= form.relationship_score ? 'on' : ''}}"
-          data-score="{{item}}"
-          bindtap="onScoreTap">●</view>
-      </view>
-    </view>
   </view>
 
   <view class="section">

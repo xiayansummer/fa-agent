@@ -8,12 +8,17 @@ from pydantic import BaseModel
 from database import get_db
 from models.investors import Investor
 from auth.jwt import get_current_ir
+from models.ir_users import IRUser
 from skills.qmingpian import (
     qmingpian_search_person,
     qmingpian_add_person,
     qmingpian_edit_person,
     qmingpian_export_person,
+    qmingpian_add_familiar_person,
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -335,12 +340,13 @@ async def update_investor(
     investor_id: int,
     body: InvestorUpdate,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_ir),
+    current_ir: dict = Depends(get_current_ir),
 ):
     """
     编辑：
-    - 同步基本信息（name/agency/position/phone/wechat/email）到企名片（若有 person_id）;
-    - 扩展字段（关系值/标签/备注/生日等）写本地。
+    - 同步基本信息（name/agency/position/phone/wechat/email）到企名片；
+    - 熟悉度（familiarity）回写到企名片（若 IR 配置了 qmingpian_username）；
+    - 其他扩展字段写本地。
     """
     result = await db.execute(select(Investor).where(Investor.id == investor_id))
     investor = result.scalar_one_or_none()
@@ -365,7 +371,33 @@ async def update_investor(
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"企名片更新失败: {e}")
 
-    # 2) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
+    # 2) 熟悉度回写企名片（需要 IR 配置了 qmingpian_username）
+    new_familiarity = updates.get("familiarity")
+    if new_familiarity and new_familiarity != investor.familiarity:
+        # 取 IR 的 qmingpian_username
+        ir_result = await db.execute(
+            select(IRUser).where(IRUser.id == current_ir["ir_id"])
+        )
+        ir_user = ir_result.scalar_one_or_none()
+        if ir_user and ir_user.qmingpian_username:
+            try:
+                # 使用 updates 里的 name/agency 或 investor 现有值
+                name_for_qm = updates.get("name") or investor.name
+                agency_for_qm = updates.get("agency") or investor.agency or ""
+                await qmingpian_add_familiar_person(
+                    name=name_for_qm,
+                    agency=agency_for_qm,
+                    user_name=ir_user.qmingpian_username,
+                    level=new_familiarity,
+                )
+            except Exception as e:
+                # 熟悉度回写失败不阻塞本地保存，只记录
+                logger.warning(
+                    "qmingpian familiarity sync failed for investor %s: %s",
+                    investor_id, e,
+                )
+
+    # 3) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
     for field, value in updates.items():
         setattr(investor, field, value)
     await db.commit()

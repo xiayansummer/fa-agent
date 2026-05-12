@@ -92,6 +92,30 @@ async def qmingpian_edit_person(
     return _check(resp).get("data", {})
 
 
+@skill(registry=skill_registry, name="企名片.设置投资人熟悉度",
+       version="1.0", timeout=10, retry=1)
+async def qmingpian_add_familiar_person(
+    name: str,
+    agency: str,
+    user_name: str,
+    level: str,
+) -> dict:
+    """设置某 IR 对某投资人的熟悉度。
+    - name/agency: 投资人姓名+机构
+    - user_name: IR 在企名片系统内的用户名（如 'Investarget'）
+    - level: 熟悉度等级（必须是企名片预配置的值，如"加过微信"/"见过面"/...）
+    """
+    form = _base({
+        "name": name,
+        "agency": agency,
+        "user_name": user_name,
+        "level": level,
+    })
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{BASE_URL}/Person/addFamiliarPerson", data=form)
+    return _check(resp).get("data", {})
+
+
 @skill(registry=skill_registry, name="企名片.更新投资人标签",
        version="1.0", timeout=10, retry=1)
 async def qmingpian_update_person_tags(
