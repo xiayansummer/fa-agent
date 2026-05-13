@@ -319,17 +319,41 @@ async def qmingpian_hit(
     if pick is None:
         return QmingpianHitOut()
 
-    # 聚合同 person_id 的所有名片 url（searchPerson 新鉴权下同 person_id 可能多条）
+    # 聚合同 person_id 的所有名片 url，按时间倒序（最新在 cards[0]）。
+    # 时间从 URL 内嵌的时间戳解析：
+    #   image.investarget.com/<14位YYYYMMDDHHMMSS>...    （历史域名）
+    #   qimingpianfile.../userUpload/file_<8位hex>...    （新上传：hex 时间戳）
+    import re
+    from datetime import datetime
+    _RE_OLD = re.compile(r"/(\d{14})")
+    _RE_NEW = re.compile(r"/file_([0-9a-fA-F]{8})")
+
+    def _card_ts(url: str) -> int:
+        m = _RE_OLD.search(url)
+        if m:
+            try:
+                return int(datetime.strptime(m.group(1), "%Y%m%d%H%M%S").timestamp())
+            except ValueError:
+                pass
+        m = _RE_NEW.search(url)
+        if m:
+            try:
+                return int(m.group(1), 16)
+            except ValueError:
+                pass
+        return 0  # 无法解析 → 排最后
+
     target_pid = pick.get("person_id")
     cards_seen: set[str] = set()
-    cards: list[str] = []
+    raw_cards: list[str] = []
     for h in hits:
         if h.get("person_id") != target_pid:
             continue
         u = (h.get("url") or "").strip()
         if u and u not in cards_seen:
-            cards.append(u)
+            raw_cards.append(u)
             cards_seen.add(u)
+    cards = sorted(raw_cards, key=_card_ts, reverse=True)
 
     raw_tag = pick.get("tag") or ""
     tags = [t.strip() for t in raw_tag.split("|") if t and t.strip()]
