@@ -188,20 +188,20 @@ Page<PageData, {}>({
     this._appendMessage({
       id: thinkingId,
       kind: 'thinking',
-      agent: 'content',
-      thinkingLabel: '正在回复',
+      agent: 'orchestrator',
+      thinkingLabel: '正在思考',
     });
 
     try {
-      const res = await api.post<{ reply: string }>('/api/agent/chat', {
+      const res = await api.post<{ reply: string; agent_role?: string }>('/api/agent/chat', {
         message: text,
         history: this.data.history.slice(-10),
       });
 
-      // 替换 thinking 为 agent_text
+      // 替换 thinking 为 agent_text；agent_role 默认 orchestrator
       this._replaceMessage(thinkingId, {
         kind: 'agent_text',
-        agent: 'content',
+        agent: res.agent_role || 'orchestrator',
         body: res.reply,
       });
 
@@ -215,7 +215,7 @@ Page<PageData, {}>({
     } catch (e) {
       this._replaceMessage(thinkingId, {
         kind: 'agent_text',
-        agent: 'content',
+        agent: 'orchestrator',
         body: '回复失败，请重试',
       });
     }

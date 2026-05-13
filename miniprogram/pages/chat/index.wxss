@@ -29,6 +29,10 @@ page { background: var(--bg-base); }
   font-size: 28rpx; line-height: 1.7;
   border-left: 8rpx solid var(--agent-content);
 }
+.agent-text.agent-orchestrator { border-left-color: #6B7AFF; }
+.agent-text.agent-list         { border-left-color: #8B5CF6; }
+.agent-text.agent-content      { border-left-color: #374151; }
+.agent-text.agent-outreach     { border-left-color: #F59E0B; }
 
 .input-bar {
   position: fixed; bottom: 0; left: 0; right: 0;

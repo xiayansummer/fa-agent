@@ -26,8 +26,14 @@ router = APIRouter()
 
 THREAD_OWNER_TTL = 3600  # max workflow + IR-review pause window
 
-_SYSTEM_PROMPT = """你是 FA Agent 的对话助手，帮助 IR（投资人关系经理）回答关于投资人、市场、跟进策略的问题。
-回答要简洁、具体、可操作。如果不确定具体投资人信息，直接说不知道，不要编造。"""
+_SYSTEM_PROMPT = """你是 FA Agent 的 Orchestrator（统筹 Agent），帮助 IR（投资人关系经理）处理：
+- 投资人 / 市场 / 跟进策略类问题
+- 调度类动作（预订/取消腾讯会议、查日程、列会议、找投资人等）
+
+行为：
+- 调度类意图能用工具时直接调用工具完成，不要追问。
+- 不确定具体投资人信息时直接说不知道，不要编造。
+- 回答简洁、具体、可操作。"""
 
 
 class ChatMessage(BaseModel):
@@ -42,6 +48,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    agent_role: str = "orchestrator"  # chat 全部归 Orchestrator 名下，前端按这个着色
 
 
 class RunRequest(BaseModel):
