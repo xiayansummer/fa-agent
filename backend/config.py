@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     ai_base_url: str = "https://api.anthropic.com/v1"
     ai_model: str = "claude-sonnet-4-6"
 
+    # ASR：DashScope Qwen3-ASR-Flash via OpenAI-compatible /audio/transcriptions
+    asr_api_key: str = ""
+    asr_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    asr_model: str = "qwen3-asr-flash"
+
     tavily_api_key: str
 
     qmingpian_token: str  # open_id for Investarget/企名片 API

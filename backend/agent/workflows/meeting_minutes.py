@@ -29,16 +29,16 @@ async def fetch_profiles_node(state: AgentState) -> dict:
 
 
 async def transcribe_node(state: AgentState) -> dict:
-    """Use transcript directly if provided; otherwise call ASR skill."""
+    """Use transcript directly if provided; otherwise call ASR skill via URL.
+
+    DashScope Qwen3-ASR-Flash 从公网拉取 audio_url（Qiniu 签名 URL 即可），
+    不需要服务端先下载。
+    """
     if state.get("transcript"):
         return {}
     if not state.get("audio_url"):
         return {"transcript": "（无转录内容）", "skills_called": []}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(state["audio_url"])
-        resp.raise_for_status()
-        audio_bytes = resp.content
-    text = await skill_registry.call("ASR.音频转文字", audio_bytes=audio_bytes)
+    text = await skill_registry.call("ASR.音频转文字", audio_url=state["audio_url"])
     return {"transcript": text, "skills_called": ["ASR.音频转文字"]}
 
 
