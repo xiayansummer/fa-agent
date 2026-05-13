@@ -193,7 +193,7 @@ Page<PageData, {}>({
     });
 
     try {
-      const res = await api.post<{ reply: string; agent_role?: string }>('/api/agent/chat', {
+      const res = await api.post<{ reply: string; agent_role?: string; thread_id?: string }>('/api/agent/chat', {
         message: text,
         history: this.data.history.slice(-10),
       });
@@ -204,6 +204,11 @@ Page<PageData, {}>({
         agent: res.agent_role || 'orchestrator',
         body: res.reply,
       });
+
+      // 如果 Orchestrator 触发了 workflow，自动接管 WS 显示其它 agent 的进度
+      if (res.thread_id) {
+        this._subscribeToThread(res.thread_id);
+      }
 
       // 更新 history
       const newHistory = [
