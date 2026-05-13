@@ -92,6 +92,32 @@ async def qmingpian_edit_person(
     return _check(resp).get("data", {})
 
 
+@skill(registry=skill_registry, name="企名片.绑定投资人名片",
+       version="1.0", timeout=15, retry=1)
+async def qmingpian_add_person_card(
+    person_id: str,
+    img_url: str,
+    create_name: str,
+) -> dict:
+    """把 /Upload/file 拿到的 url 绑定到投资人记录，使企名片 PC 端能看到名片。
+
+    注意：本接口不用 open_id，鉴权走 team_uuid+unionid。
+    """
+    if not settings.qmingpian_team_uuid or not settings.qmingpian_unionid:
+        raise ValueError("缺少 QMINGPIAN_TEAM_UUID 或 QMINGPIAN_UNIONID")
+    data = {
+        "url": img_url,
+        "person_id": person_id,
+        "belong": "投资人库列表页",
+        "team_uuid": settings.qmingpian_team_uuid,
+        "unionid": settings.qmingpian_unionid,
+        "create_name": create_name,
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{BASE_URL}/Person/addPersonCard", data=data)
+    return _check(resp).get("data", {})
+
+
 @skill(registry=skill_registry, name="企名片.上传文件",
        version="1.0", timeout=60, retry=1)
 async def qmingpian_upload_file(

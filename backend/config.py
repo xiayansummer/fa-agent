@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     tavily_api_key: str
 
     qmingpian_token: str  # open_id for Investarget/企名片 API
+    qmingpian_team_uuid: str = ""   # team_uuid for /Person/addPersonCard
+    qmingpian_unionid: str = ""     # unionid for /Person/addPersonCard
 
     tencent_meeting_app_id: str
     tencent_meeting_secret_id: str

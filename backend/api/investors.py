@@ -18,6 +18,7 @@ from skills.qmingpian import (
     qmingpian_update_familiar_person,
     qmingpian_update_person_tags,
     qmingpian_upload_file,
+    qmingpian_add_person_card,
 )
 import logging
 
@@ -453,6 +454,24 @@ async def create_investor(
             logger.warning("qmingpian tags sync failed on create for %s: %s", body.name, e)
             warnings.append(f"投资人标签未同步至企名片：{e}")
 
+    # 名片绑定到企名片（让企名片 PC 端能看到这张名片）
+    if body.business_card_url and person_id:
+        try:
+            ir_row = (await db.execute(
+                select(IRUser).where(IRUser.id == _["ir_id"])
+            )).scalar_one_or_none()
+            create_name = ((ir_row.qmingpian_username if ir_row and ir_row.qmingpian_username
+                            else (ir_row.name if ir_row else ""))
+                           or "Investarget")
+            await qmingpian_add_person_card(
+                person_id=person_id,
+                img_url=body.business_card_url,
+                create_name=create_name,
+            )
+        except Exception as e:
+            logger.warning("qmingpian addPersonCard failed on create for %s: %s", body.name, e)
+            warnings.append(f"名片未绑定至企名片：{e}")
+
     # 本地插入（含扩展字段）
     investor = Investor(
         qmingpian_person_id=person_id,
@@ -577,6 +596,29 @@ async def update_investor(
                 investor_id, e,
             )
             warnings.append(f"投资人标签未同步至企名片：{e}")
+
+    # 3.5) 名片绑卡到企名片（business_card_url 变化时；首次设置或更换都触发）
+    new_card_url = updates.get("business_card_url")
+    if (new_card_url and new_card_url != investor.business_card_url
+            and investor.qmingpian_person_id):
+        try:
+            ir_row = (await db.execute(
+                select(IRUser).where(IRUser.id == current_ir["ir_id"])
+            )).scalar_one_or_none()
+            create_name = ((ir_row.qmingpian_username if ir_row and ir_row.qmingpian_username
+                            else (ir_row.name if ir_row else ""))
+                           or "Investarget")
+            await qmingpian_add_person_card(
+                person_id=investor.qmingpian_person_id,
+                img_url=new_card_url,
+                create_name=create_name,
+            )
+        except Exception as e:
+            logger.warning(
+                "qmingpian addPersonCard failed for investor %s: %s",
+                investor_id, e,
+            )
+            warnings.append(f"名片未绑定至企名片：{e}")
 
     # 4) 写本地（全部字段，包括 qmingpian 同步过的，保持镜像）
     for field, value in updates.items():
