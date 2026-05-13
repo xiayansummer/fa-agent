@@ -18,6 +18,7 @@ from skills.qmingpian import (
     qmingpian_update_familiar_person,
     qmingpian_update_person_tags,
     qmingpian_add_person_summary,
+    qmingpian_export_ongoing_lunci,
 )
 from .base import ToolCtx
 
@@ -132,6 +133,24 @@ TOOLS = [
                     "summary": {"type": "string"},
                 },
                 "required": ["investor_id", "summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_ongoing_project_contacts",
+            "description": (
+                "查 ongoing 项目的对接清单（机构 + 对接投资人）。"
+                "event_name 不传或传空字符串 → 所有 ongoing 项目的全量对接清单。"
+                "event_name 传具体项目名（格式如「珀乐互动/A轮/3000万」、「本导基因/B轮/4000万人民币」）"
+                "→ 该项目的对接清单。返回 count + 前 30 条预览。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_name": {"type": "string"},
+                },
             },
         },
     },
@@ -351,6 +370,22 @@ async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
 
 
+async def _list_ongoing(args: dict, ctx: ToolCtx) -> dict:
+    event_name = (args.get("event_name") or "").strip()
+    try:
+        data = await qmingpian_export_ongoing_lunci(event_name)
+    except Exception as e:
+        return {"error": f"企名片导出失败：{e}"}
+    contacts = data.get("contacts", []) or []
+    return {
+        "ok": True,
+        "event_name": event_name or "（全部 ongoing）",
+        "total": data.get("count", len(contacts)),
+        "preview": contacts[:30],   # 限 30 条避免压 LLM context
+        "truncated": len(contacts) > 30,
+    }
+
+
 _INTERACTION_TYPES = {"meeting", "call", "wechat", "email", "push", "other"}
 
 
@@ -400,6 +435,7 @@ _DISPATCH = {
     "set_investor_tags":         _set_tags,
     "add_person_summary":        _add_summary,
     "record_interaction":        _record_interaction,
+    "list_ongoing_project_contacts": _list_ongoing,
 }
 
 

@@ -458,6 +458,48 @@ async def qmingpian_export_person(person_name: str) -> dict:
     return result
 
 
+@skill(registry=skill_registry, name="企名片.导出ongoing项目对接",
+       version="1.0", timeout=15, retry=1)
+async def qmingpian_export_ongoing_lunci(event_name: str = "") -> dict:
+    """导出 ongoing 项目对接进展（机构 + 对接投资人）。
+
+    - event_name="" → 返回所有 ongoing 项目涉及的机构/投资人（全量）
+    - event_name="珀乐互动/A轮/3000万" → 返回该项目的所有对接清单
+
+    返回：{contacts: list[{agency, person}], count: int}
+    """
+    import io
+    from openpyxl import load_workbook
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{BASE_URL}/Export/exportLunciOpen",
+            data=_base({"event_name": event_name}),
+        )
+    ct = resp.headers.get("content-type", "")
+    if not ct.startswith("application/vnd.openxmlformats"):
+        try:
+            d = resp.json()
+            raise ValueError(f"企名片 lunci export error: status={d.get('status')} message={d.get('message')}")
+        except Exception:
+            raise ValueError(f"企名片 lunci export 失败，返回非 xlsx: {ct}")
+    wb = load_workbook(io.BytesIO(resp.content), read_only=True)
+    contacts: list[dict] = []
+    for sn in wb.sheetnames:
+        ws = wb[sn]
+        rows = list(ws.iter_rows(values_only=True))
+        if len(rows) < 3:
+            continue
+        # row 0: title, row 1: header (机构名 / 投资人名), row 2+: data
+        for row in rows[2:]:
+            if not row or all(c in (None, "") for c in row):
+                continue
+            agency = str(row[0]) if len(row) > 0 and row[0] else ""
+            person = str(row[1]) if len(row) > 1 and row[1] else ""
+            if agency or person:
+                contacts.append({"agency": agency, "person": person})
+    return {"contacts": contacts, "count": len(contacts)}
+
+
 @skill(registry=skill_registry, name="企名片.导出机构详情",
        version="1.0", timeout=15, retry=1)
 async def qmingpian_export_agency(jigou_id: str) -> dict:
