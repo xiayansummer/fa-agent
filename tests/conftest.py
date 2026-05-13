@@ -10,8 +10,6 @@ _REQUIRED_STUBS = {
     "AI_API_KEY": "test",
     "TAVILY_API_KEY": "test",
     "QMINGPIAN_TOKEN": "test",
-    "TENCENT_SECRET_ID": "test",
-    "TENCENT_SECRET_KEY": "test",
     "TENCENT_MEETING_APP_ID": "test",
     "TENCENT_MEETING_SECRET_ID": "test",
     "TENCENT_MEETING_SECRET_KEY": "test",

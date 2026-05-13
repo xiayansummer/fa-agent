@@ -26,9 +26,6 @@ class Settings(BaseSettings):
 
     qmingpian_token: str  # open_id for Investarget/企名片 API
 
-    tencent_secret_id: str
-    tencent_secret_key: str
-
     tencent_meeting_app_id: str
     tencent_meeting_secret_id: str
     tencent_meeting_secret_key: str
