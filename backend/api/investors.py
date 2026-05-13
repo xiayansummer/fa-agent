@@ -84,6 +84,12 @@ class InvestorCreate(BaseModel):
     email: Optional[list] = None
     wechat: Optional[list] = None
     phone: Optional[list] = None
+    # 企名片扩展字段（仅在 POST 创建时透传给 addPersonInfo，本地不存）
+    gender: Optional[str] = None              # '男' / '女'
+    level: Optional[str] = None               # '高' / '低'（投资人级别，与 familiarity 是两个概念）
+    office_location: Optional[str] = None
+    introduction: Optional[str] = None
+    is_dimission: Optional[int] = None        # 1=离职 0=在职
     # 仅本地的业务画像
     avatar_url: Optional[str] = None
     business_card_url: Optional[str] = None
@@ -423,7 +429,7 @@ async def create_investor(
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="该投资人已在你的库中")
     else:
-        # 调企名片新增
+        # 调企名片新增（一次性带上扩展字段 + tag，省去后续单独 updatePersonTag）
         try:
             res = await qmingpian_add_person(
                 name=body.name,
@@ -432,6 +438,12 @@ async def create_investor(
                 wechat=_first_or_empty(body.wechat),
                 email=_first_or_empty(body.email),
                 position=body.position or "",
+                tags=body.qmingpian_tags,
+                level=body.level or "",
+                gender=body.gender or "",
+                office_location=body.office_location or "",
+                introduction=body.introduction or "",
+                is_dimission=body.is_dimission,
             )
             person_id = res.get("person_id")
             if not person_id:
@@ -441,9 +453,11 @@ async def create_investor(
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"企名片新增失败: {e}")
 
-    # 投资人标签写回企名片（本地不存）
     warnings: list[str] = []
-    if body.qmingpian_tags is not None and body.qmingpian_tags:
+    # 投资人标签：only call updatePersonTag if 已有 person_id（从搜索结果加入路径）
+    # 否则上面 addPersonInfo 已经带了 tags
+    if (body.qmingpian_person_id and body.qmingpian_tags is not None
+            and body.qmingpian_tags):
         try:
             await qmingpian_update_person_tags(
                 name=body.name,

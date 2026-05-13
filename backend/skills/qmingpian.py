@@ -34,16 +34,26 @@ async def qmingpian_search_person(keywords: str) -> list[dict]:
 
 
 @skill(registry=skill_registry, name="企名片.添加投资人",
-       version="1.0", timeout=10, retry=1)
+       version="1.1", timeout=10, retry=1)
 async def qmingpian_add_person(
     name: str,
     agency: str,
     phone: str = "",
     wechat: str = "",
     email: str = "",
-    position: str = "",
-    tags: list[str] | None = None,
+    position: str = "",             # 企名片字段 zhiwu
+    tags: list[str] | None = None,  # 企名片字段 tag（"|" 分隔）
+    level: str = "",                # 投资人级别：'高' / '低'
+    gender: str = "",               # 性别：'男' / '女'，企名片字段 sex
+    office_location: str = "",      # 办公地区
+    introduction: str = "",         # 简介
+    is_dimission: int | None = None,  # 是否离职：1=离职 0=在职
 ) -> dict:
+    """新增投资人到企名片。
+
+    注意：企名片侧的实际字段名是 zhiwu/sex/tag（不是 position/gender/tags），
+    本函数在 Python 层保留更友好的命名并内部映射。
+    """
     form = _base({
         "name": name,
         "agency": agency,
@@ -55,9 +65,19 @@ async def qmingpian_add_person(
     if email:
         form["email"] = json.dumps([email])
     if position:
-        form["position"] = position
+        form["zhiwu"] = position          # 之前误用 'position'，企名片侧字段是 zhiwu
     if tags:
-        form["content"] = "|".join(tags)
+        form["tag"] = "|".join(tags)       # 之前误用 'content'，企名片侧字段是 tag
+    if level:
+        form["level"] = level
+    if gender:
+        form["sex"] = gender
+    if office_location:
+        form["office_location"] = office_location
+    if introduction:
+        form["introduction"] = introduction
+    if is_dimission is not None:
+        form["is_dimission"] = str(int(is_dimission))
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{BASE_URL}/Person/addPersonInfo", data=form)
     return _check(resp).get("data", {})
@@ -86,7 +106,7 @@ async def qmingpian_edit_person(
     if email:
         form["email"] = json.dumps([email])
     if position:
-        form["position"] = position
+        form["zhiwu"] = position    # 企名片侧字段是 zhiwu，不是 position
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{BASE_URL}/Person/editPersonInfo", data=form)
     return _check(resp).get("data", {})
