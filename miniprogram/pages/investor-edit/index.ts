@@ -28,6 +28,7 @@ interface PageData {
   industryOptions: string[];
   stageOptions: string[];
   familiarityOptions: string[];
+  positionOptions: string[];
   /** 行业偏好：只读，从企名片 industry_info 拉取 */
   qmingpianIndustries: string[];
   /** 投资人标签初始值（用于判断是否变化，避免无变化时仍调 updatePersonTag） */
@@ -38,6 +39,14 @@ interface PageData {
 
 const INDUSTRY_OPTS = ['消费', 'TMT', '医疗', 'AI', 'SaaS', '硬件', '教育', '金融'];
 const STAGE_OPTS = ['天使', 'A轮', 'B轮', 'C轮', 'D轮', 'Pre-IPO'];
+// 投资人职位字典（与企名片侧"投资人职位"配置对齐，禁止前端造新职位）
+const POSITION_OPTS = [
+  '党委书记', '董事长', '总裁', '首席执行官', '副董事长', '总经理', '合伙人',
+  '首席财务官', '首席运营官', '董事总经理', '副总经理', '执行董事', '董事',
+  '董事长助理', '董事会秘书', '部长', '主任', '副部长', '高级副总裁',
+  '执行副总裁', '总监', '副总监', '副总裁', '高级投资经理', '执行董事助理',
+  '投资经理', '顾问', '分析师', '监事', '实习生', '助理',
+];
 
 Page<PageData, {}>({
   data: {
@@ -62,6 +71,7 @@ Page<PageData, {}>({
     industryOptions: INDUSTRY_OPTS,
     stageOptions: STAGE_OPTS,
     familiarityOptions: FAMILIARITY_OPTIONS,
+    positionOptions: POSITION_OPTS,
     qmingpianIndustries: [],
     qmingpianTagsOriginal: [],
     tagInput: '',
@@ -203,6 +213,16 @@ Page<PageData, {}>({
 
   onBirthdayChange(e: WechatMiniprogram.PickerChange) {
     this.setData({ 'form.birthday': e.detail.value as string });
+  },
+
+  onPositionChange(e: WechatMiniprogram.PickerChange) {
+    const idx = parseInt(e.detail.value as unknown as string);
+    if (Number.isNaN(idx) || idx < 0 || idx >= POSITION_OPTS.length) return;
+    this.setData({ 'form.position': POSITION_OPTS[idx] });
+  },
+
+  onPositionClear() {
+    this.setData({ 'form.position': '' });
   },
 
   onTagInput(e: WechatMiniprogram.Input) {

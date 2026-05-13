@@ -23,6 +23,17 @@ page { background: var(--bg-base); }
 .input { flex: 1; font-size: 28rpx; }
 .picker-display { flex: 1; font-size: 28rpx; color: var(--text-secondary); }
 
+.clear-x {
+  width: 40rpx; height: 40rpx;
+  line-height: 36rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #e5e5ea;
+  color: var(--text-secondary);
+  font-size: 24rpx;
+  margin-left: 12rpx;
+}
+
 .score-bar { display: flex; gap: 8rpx; }
 .score-dot {
   font-size: 32rpx;
