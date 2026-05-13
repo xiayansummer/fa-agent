@@ -1,6 +1,9 @@
 from __future__ import annotations
+import logging
 import httpx
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
@@ -62,17 +65,58 @@ async def generate_node(state: AgentState) -> dict:
     }
 
 
+async def summarize_for_interaction_node(state: AgentState) -> dict:
+    """Content Agent：把完整纪要压缩成 80-120 字的互动摘要，写入 InteractionLog.summary。
+    rejected 时跳过（不会落库），失败时降级用 final 的前 120 字。"""
+    if state.get("ir_action") == "rejected":
+        return {"interaction_summary": ""}
+    final_content = (state.get("final") or "").strip()
+    if not final_content:
+        return {"interaction_summary": ""}
+    if not (state.get("investor_ids") or []):
+        # 没关联投资人就不写互动表，不浪费一次 LLM
+        return {"interaction_summary": ""}
+    try:
+        escaped = final_content.replace("{", "{{").replace("}", "}}")
+        context = prompt_registry.get(
+            "meeting_minutes.interaction_summary",
+            variables={"full_minutes": escaped},
+        )
+        short = await skill_registry.call("Claude.生成内容", context=context, max_tokens=256)
+        short = (short or "").strip()
+        if not short:
+            short = final_content[:120]
+    except Exception as e:
+        logger.warning("interaction_summary failed: %s; fallback to truncation", e)
+        short = final_content[:120]
+    return {
+        "interaction_summary": short,
+        "skills_called": ["Claude.生成内容(互动摘要)"],
+    }
+
+
 async def save_node(state: AgentState) -> dict:
+    from datetime import datetime
+    from models.investors import Investor
+    from sqlalchemy import select
     final_content = state.get("final") or ""
+    short_summary = (state.get("interaction_summary") or "").strip() or final_content[:120]
     investor_ids = state.get("investor_ids") or []
+    occurred_at = datetime.now()
     async with AsyncSessionLocal() as db:
-        if state.get("ir_action") != "rejected":
+        if state.get("ir_action") != "rejected" and investor_ids:
+            inv_rows = (await db.execute(
+                select(Investor).where(Investor.id.in_(investor_ids))
+            )).scalars().all()
+            inv_map = {inv.id: inv for inv in inv_rows}
+
             for inv_id in investor_ids:
                 db.add(InteractionLog(
                     investor_id=inv_id,
                     ir_id=state["ir_id"],
                     type="meeting",
-                    summary=final_content[:500],
+                    occurred_at=occurred_at,
+                    summary=short_summary,            # Content Agent 二次提炼的短摘要
                     raw_content=state.get("transcript") or "",
                     agent_generated=True,
                 ))
@@ -83,6 +127,10 @@ async def save_node(state: AgentState) -> dict:
                     content=final_content,
                     status="approved" if state.get("ir_action") in ("approved", "modified") else "draft",
                 ))
+                # 推进 investor.last_interaction_at（仅当新事件更晚）
+                inv = inv_map.get(inv_id)
+                if inv and (not inv.last_interaction_at or occurred_at > inv.last_interaction_at):
+                    inv.last_interaction_at = occurred_at
         db.add(AgentTrace(
             thread_id=state["thread_id"],
             ir_id=state["ir_id"],
@@ -104,6 +152,7 @@ builder.add_node("fetch_tencent_minutes", fetch_tencent_minutes_node)
 builder.add_node("transcribe", transcribe_node)
 builder.add_node("generate", generate_node)
 builder.add_node("review", review_node)
+builder.add_node("summarize_for_interaction", summarize_for_interaction_node)
 builder.add_node("save", save_node)
 
 builder.add_edge(START, "fetch_profiles")
@@ -111,7 +160,8 @@ builder.add_edge("fetch_profiles", "fetch_tencent_minutes")
 builder.add_edge("fetch_tencent_minutes", "transcribe")
 builder.add_edge("transcribe", "generate")
 builder.add_edge("generate", "review")
-builder.add_edge("review", "save")
+builder.add_edge("review", "summarize_for_interaction")
+builder.add_edge("summarize_for_interaction", "save")
 builder.add_edge("save", END)
 
 meeting_minutes_graph = builder.compile(checkpointer=_checkpointer)

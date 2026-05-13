@@ -42,6 +42,10 @@ class AgentState(TypedDict):
     # dispatch by investor_id from the structured payload)
     generated_messages_json: Optional[str]
 
+    # meeting_minutes: a short 80-120 字 summary distilled from the full
+    # minutes, written to InteractionLog.summary (Content Agent step).
+    interaction_summary: Optional[str]
+
     # Output
     draft: Optional[str]
     final: Optional[str]

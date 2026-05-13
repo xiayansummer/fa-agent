@@ -1,0 +1,1 @@
+{"version": "v1", "status": "active", "description": "把完整会议纪要压缩成 80-120 字的互动摘要，写入 InteractionLog.summary"}
