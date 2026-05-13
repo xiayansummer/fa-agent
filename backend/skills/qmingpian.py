@@ -260,14 +260,85 @@ async def qmingpian_add_agency_summary(
 
 @skill(registry=skill_registry, name="企名片.查询机构",
        version="1.0", timeout=10, retry=2, fallback=[])
-async def qmingpian_search_agency(keywords: str) -> list[dict]:
+async def qmingpian_search_agency(keywords: str, num: int = 20) -> list[dict]:
+    """企名片多维机构库检索（searchAgency）。"""
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{BASE_URL}/Agency/searchAgency",
-            data=_base({"keywords": keywords}),
+            data=_base({"keywords": keywords, "num": str(num)}),
         )
     data = _check(resp)
     return data.get("data", {}).get("list", [])
+
+
+@skill(registry=skill_registry, name="企名片.检索外部机构",
+       version="1.0", timeout=10, retry=2, fallback=[])
+async def qmingpian_search_external_agency(keywords: str) -> list:
+    """企名片外部机构库检索（agencyInfoList，又名 searchWaiBuAgency）。
+    返回元素一般为字符串机构名（不是 dict），覆盖比 searchAgency 更广。
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{BASE_URL}/Agency/agencyInfoList",
+            data=_base({"keywords": keywords}),
+        )
+    data = _check(resp)
+    return data.get("data", {}).get("list", []) or []
+
+
+@skill(registry=skill_registry, name="企名片.添加机构",
+       version="1.0", timeout=10, retry=1)
+async def qmingpian_add_agency(name: str) -> dict:
+    """企名片新增机构（addAgencyInfo）。
+    幂等处理：「机构已存在」(status=1) 视为成功，返回 {existed: True}。
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{BASE_URL}/Agency/addAgencyInfo",
+            data=_base({"name": name}),
+        )
+    body = resp.json()
+    if str(body.get("status")) == "0":
+        return body.get("data", {}) or {}
+    if str(body.get("message", "")).startswith("机构已存在"):
+        return {"existed": True}
+    raise ValueError(f"企名片 API error {body.get('status')}: {body.get('message')}")
+
+
+@skill(registry=skill_registry, name="企名片.添加机构文件",
+       version="1.0", timeout=15, retry=1)
+async def qmingpian_add_agency_file(
+    agency_name: str,
+    filename: str,
+    file_url: str,
+    user_name: str = "",
+) -> dict:
+    """企名片为某机构挂载文件（addAgencyFile，如 BP/DataPack/Term Sheet 等）。
+
+    参数：
+    - agency_name: 机构名
+    - filename: 文件显示名（带扩展名）
+    - file_url: 文件公网可访问 URL（如先调 /Upload/file 拿到的 URL）
+    - user_name: IR 在企名片侧用户名（create_name 同语义）
+
+    内部会先调 addAgencyInfo 确保机构存在，再调 addAgencyFile。
+    """
+    # 先确保机构存在；失败也继续（多数是已存在）
+    try:
+        await qmingpian_add_agency(agency_name)
+    except Exception:
+        pass
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{BASE_URL}/ProductFile/addAgencyFile",
+            data=_base({
+                "name": agency_name,
+                "file_name": filename,
+                "url": file_url,
+                "user_name": user_name,
+            }),
+        )
+    return _check(resp).get("data", {})
 
 
 @skill(registry=skill_registry, name="企名片.搜索企名片机构",
