@@ -198,11 +198,13 @@ async def qmingpian_search_jigou(keywords: str) -> list[dict]:
 async def qmingpian_export_person(person_name: str) -> dict:
     """通过姓名导出投资人详情（xlsx）。
 
-    返回包含 3 个 sheet 的 xlsx，解析后返回：
+    返回包含 4 个 sheet 的 xlsx，解析后返回：
     - agency / phone / email / industry —— 来自"投资人详情"sheet
     - summaries: list of {content, creator, created_at} —— 来自"投资人纪要"sheet
     - history: list of {event, agency, industry, round, status, feedback, contact_time}
       —— 来自"历史推荐"sheet
+    - familiar_persons: list of {name, level} —— 来自"熟悉人"sheet
+      （团队里各 IR 对该投资人的熟悉度，name 是 IR 的企名片用户名）
 
     只能查到当前 open_id 范围内的投资人（自己加过的或被共享的）。
     """
@@ -224,7 +226,7 @@ async def qmingpian_export_person(person_name: str) -> dict:
             raise ValueError(f"企名片 export 失败，返回非 xlsx: {ct}")
 
     wb = load_workbook(io.BytesIO(resp.content), read_only=True)
-    result: dict = {"summaries": [], "history": []}
+    result: dict = {"summaries": [], "history": [], "familiar_persons": []}
 
     for sn in wb.sheetnames:
         ws = wb[sn]
@@ -272,6 +274,16 @@ async def qmingpian_export_person(person_name: str) -> dict:
                     "feedback": str(row[5]) if len(row) > 5 and row[5] else "",
                     "contact_time": str(row[6]) if len(row) > 6 and row[6] else "",
                 })
+
+        elif sn == "熟悉人":
+            # 表头: 姓名 / 熟悉度
+            for row in rows[2:]:
+                if not row or all(c in (None, "") for c in row):
+                    continue
+                name = str(row[0]) if len(row) > 0 and row[0] else ""
+                level = str(row[1]) if len(row) > 1 and row[1] else ""
+                if name:
+                    result["familiar_persons"].append({"name": name, "level": level})
 
     return result
 

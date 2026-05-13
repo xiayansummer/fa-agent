@@ -115,6 +115,22 @@ page { background: var(--bg-base); }
   font-size: 22rpx; color: var(--text-secondary);
 }
 
+.fam-list { display: flex; flex-direction: column; }
+.fam-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--border-light);
+}
+.fam-row:last-child { border-bottom: none; }
+.fam-name { font-size: 28rpx; color: var(--text-primary); }
+.fam-level {
+  font-size: 24rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 6rpx;
+  background: #fef3c7;
+  color: #c2410c;
+}
+
 .bottom-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff;

@@ -44,6 +44,16 @@
     </view>
   </view>
 
+  <view class="section" wx:if="{{qmingpianFamiliar.length > 0}}">
+    <view class="section-title">团队熟悉度 · 来自企名片</view>
+    <view class="fam-list">
+      <view wx:for="{{qmingpianFamiliar}}" wx:key="name" class="fam-row">
+        <view class="fam-name">{{item.name}}</view>
+        <view class="fam-level">{{item.level}}</view>
+      </view>
+    </view>
+  </view>
+
   <view class="section" wx:if="{{qmingpianSummaries.length > 0}}">
     <view class="section-title">投资人纪要 · 来自企名片</view>
     <view wx:for="{{qmingpianSummaries}}" wx:key="created_at" class="qm-summary">

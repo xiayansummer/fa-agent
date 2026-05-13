@@ -248,14 +248,22 @@ class QmingpianHistory(BaseModel):
     contact_time: Optional[str] = None
 
 
+class QmingpianFamiliarPerson(BaseModel):
+    """团队里某个 IR 对投资人的熟悉度（来自企名片"熟悉人"sheet）。
+    name 是该 IR 在企名片的用户名（如 'Investarget'）。"""
+    name: str
+    level: str
+
+
 class EnrichedQmingpianOut(BaseModel):
-    """从企名片 exportPersonOpen 拉取的投资人详情（xlsx 解析，3 个 sheet）。"""
+    """从企名片 exportPersonOpen 拉取的投资人详情（xlsx 解析，4 个 sheet）。"""
     agency: Optional[str] = None
     phone: Optional[list] = None
     email: Optional[list] = None
     industry: Optional[str] = None
     summaries: list[QmingpianSummary] = []
     history: list[QmingpianHistory] = []
+    familiar_persons: list[QmingpianFamiliarPerson] = []
 
 
 class QmingpianHitOut(BaseModel):
@@ -333,6 +341,7 @@ async def enrich_from_qmingpian(
         industry=data.get("industry"),
         summaries=[QmingpianSummary(**s) for s in data.get("summaries", [])],
         history=[QmingpianHistory(**h) for h in data.get("history", [])],
+        familiar_persons=[QmingpianFamiliarPerson(**f) for f in data.get("familiar_persons", [])],
     )
 
 

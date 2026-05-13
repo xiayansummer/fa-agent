@@ -36,6 +36,11 @@ interface QmingpianHistory {
   contact_time?: string;
 }
 
+interface QmingpianFamiliarPerson {
+  name: string;
+  level: string;
+}
+
 interface PageData {
   investorId: number;
   investor?: Investor;
@@ -43,6 +48,7 @@ interface PageData {
   profileLines: string[];
   qmingpianSummaries: any[];
   qmingpianHistory: any[];
+  qmingpianFamiliar: QmingpianFamiliarPerson[];
   loading: boolean;
 }
 
@@ -64,6 +70,7 @@ Page<PageData, {}>({
     profileLines: [],
     qmingpianSummaries: [],
     qmingpianHistory: [],
+    qmingpianFamiliar: [],
     loading: false,
   },
 
@@ -113,6 +120,7 @@ Page<PageData, {}>({
       const res = await api.get<{
         summaries?: QmingpianSummary[];
         history?: QmingpianHistory[];
+        familiar_persons?: QmingpianFamiliarPerson[];
       }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
          { silent: true });
       const summaries = (res?.summaries || []).map((s: any) => ({
@@ -124,6 +132,7 @@ Page<PageData, {}>({
       this.setData({
         qmingpianSummaries: summaries,
         qmingpianHistory: res?.history || [],
+        qmingpianFamiliar: res?.familiar_persons || [],
       });
     } catch {
       // silent
