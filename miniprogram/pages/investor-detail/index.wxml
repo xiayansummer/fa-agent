@@ -14,14 +14,45 @@
     <view wx:for="{{investor.industry_tags}}" wx:key="*this" class="tag">{{item}}</view>
   </view>
 
-  <view class="section card-section" wx:if="{{investor.business_card_url}}">
-    <view class="section-title">名片</view>
+  <view class="section card-section" wx:if="{{displayCardUrl}}">
+    <view class="section-head">
+      <view class="section-title">名片{{qmingpianCards.length > 1 ? ' · 共 ' + qmingpianCards.length + ' 张' : ''}}</view>
+    </view>
     <image
       class="business-card"
-      src="{{investor.business_card_url}}"
+      src="{{displayCardUrl}}"
       mode="widthFix"
       bindtap="previewCard"
-      data-url="{{investor.business_card_url}}" />
+      data-url="{{displayCardUrl}}" />
+    <scroll-view wx:if="{{qmingpianCards.length > 1}}" scroll-x class="card-thumbs">
+      <image
+        wx:for="{{qmingpianCards}}"
+        wx:key="*this"
+        class="card-thumb"
+        src="{{item}}"
+        mode="aspectFill"
+        data-url="{{item}}"
+        bindtap="onSwitchCard" />
+    </scroll-view>
+  </view>
+
+  <view class="section" wx:if="{{contactPhones.length > 0 || contactEmails.length > 0 || contactWechats.length > 0}}">
+    <view class="section-title">联系方式</view>
+    <view wx:for="{{contactPhones}}" wx:key="*this" wx:for-item="p" class="contact-row" data-val="{{p}}" data-type="phone" bindtap="onContactTap">
+      <view class="contact-label">手机</view>
+      <view class="contact-val">{{p}}</view>
+      <view class="contact-action">复制</view>
+    </view>
+    <view wx:for="{{contactWechats}}" wx:key="*this" wx:for-item="w" class="contact-row" data-val="{{w}}" data-type="wechat" bindtap="onContactTap">
+      <view class="contact-label">微信</view>
+      <view class="contact-val">{{w}}</view>
+      <view class="contact-action">复制</view>
+    </view>
+    <view wx:for="{{contactEmails}}" wx:key="*this" wx:for-item="e" class="contact-row" data-val="{{e}}" data-type="email" bindtap="onContactTap">
+      <view class="contact-label">邮箱</view>
+      <view class="contact-val">{{e}}</view>
+      <view class="contact-action">复制</view>
+    </view>
   </view>
 
   <view class="section" wx:if="{{profileLines.length > 0}}">

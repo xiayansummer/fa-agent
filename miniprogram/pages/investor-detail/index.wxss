@@ -115,6 +115,47 @@ page { background: var(--bg-base); }
   font-size: 22rpx; color: var(--text-secondary);
 }
 
+.card-thumbs {
+  white-space: nowrap;
+  margin-top: 12rpx;
+}
+.card-thumb {
+  display: inline-block;
+  width: 200rpx;
+  height: 120rpx;
+  margin-right: 12rpx;
+  border-radius: 8rpx;
+  border: 1rpx solid var(--border-light);
+  background: #f5f5f7;
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--border-light);
+  gap: 16rpx;
+}
+.contact-row:last-child { border-bottom: none; }
+.contact-label {
+  width: 100rpx;
+  font-size: 24rpx;
+  color: var(--text-secondary);
+}
+.contact-val {
+  flex: 1;
+  font-size: 28rpx;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.contact-action {
+  font-size: 22rpx;
+  color: var(--agent-orchestrator);
+  padding: 4rpx 14rpx;
+  border-radius: 4rpx;
+  background: #eef2ff;
+}
+
 .fam-list { display: flex; flex-direction: column; }
 .fam-row {
   display: flex; align-items: center; justify-content: space-between;

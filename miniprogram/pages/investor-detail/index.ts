@@ -11,6 +11,12 @@ interface Investor {
   relationship_score: number;
   profile_notes?: string;
   last_interaction_at?: string;
+  business_card_url?: string;
+  avatar_url?: string;
+  phone?: string[];
+  wechat?: string[];
+  email?: string[];
+  familiarity?: string;
 }
 
 interface Interaction {
@@ -49,6 +55,14 @@ interface PageData {
   qmingpianSummaries: any[];
   qmingpianHistory: any[];
   qmingpianFamiliar: QmingpianFamiliarPerson[];
+  /** 企名片侧所有名片 URL（同 person_id 聚合，第一张默认显示） */
+  qmingpianCards: string[];
+  /** 显示用名片 url：优先企名片 cards[0]，缺失时 fallback 本地 business_card_url */
+  displayCardUrl: string;
+  /** 联系方式（来自企名片 by-name 端点或本地） */
+  contactPhones: string[];
+  contactEmails: string[];
+  contactWechats: string[];
   loading: boolean;
 }
 
@@ -71,6 +85,11 @@ Page<PageData, {}>({
     qmingpianSummaries: [],
     qmingpianHistory: [],
     qmingpianFamiliar: [],
+    qmingpianCards: [],
+    displayCardUrl: '',
+    contactPhones: [],
+    contactEmails: [],
+    contactWechats: [],
     loading: false,
   },
 
@@ -104,39 +123,74 @@ Page<PageData, {}>({
         dateLabel: formatDate(i.occurred_at),
       } as any));
 
-      this.setData({ investor, interactions, profileLines });
+      // 联系方式初始值：先用本地 investor 字段
+      const localPhones = (investor as any).phone || [];
+      const localEmails = (investor as any).email || [];
+      const localWechats = (investor as any).wechat || [];
+      this.setData({
+        investor,
+        interactions,
+        profileLines,
+        displayCardUrl: (investor as any).business_card_url || '',
+        contactPhones: localPhones,
+        contactEmails: localEmails,
+        contactWechats: localWechats,
+      });
 
-      // 异步拉企名片纪要 + 历史推荐（不阻塞主渲染）
+      // 异步拉企名片纪要 + 历史推荐 + 名片 + 联系方式（不阻塞主渲染）
       if (investor?.name) {
-        this._loadQmingpian(investor.name);
+        this._loadQmingpian(investor.name, (investor as any).agency || '');
       }
     } finally {
       this.setData({ loading: false });
     }
   },
 
-  async _loadQmingpian(personName: string) {
-    try {
-      const res = await api.get<{
-        summaries?: QmingpianSummary[];
-        history?: QmingpianHistory[];
-        familiar_persons?: QmingpianFamiliarPerson[];
-      }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
-         { silent: true });
-      const summaries = (res?.summaries || []).map((s: any) => ({
+  async _loadQmingpian(personName: string, agency: string) {
+    // 并发两个端点：by-name（纪要/历史/联系方式）+ searchhit（名片列表/职务）
+    const byNamePromise = api.get<{
+      agency?: string;
+      phone?: string[];
+      email?: string[];
+      industry?: string;
+      summaries?: QmingpianSummary[];
+      history?: QmingpianHistory[];
+      familiar_persons?: QmingpianFamiliarPerson[];
+    }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
+       { silent: true }).catch(() => null);
+
+    const searchhitPromise = api.get<{
+      cards?: string[];
+      position?: string;
+    }>(`/api/investors/qmingpian/searchhit?name=${encodeURIComponent(personName)}` +
+       (agency ? `&agency=${encodeURIComponent(agency)}` : ''),
+       { silent: true }).catch(() => null);
+
+    const [byName, hit] = await Promise.all([byNamePromise, searchhitPromise]);
+
+    const patch: any = {};
+
+    if (byName) {
+      const summaries = (byName.summaries || []).map((s: any) => ({
         ...s,
-        // 把内容截断到前 200 字预览（详情卡片内可点击展开）
         preview: (s.content || '').slice(0, 200),
         truncated: (s.content || '').length > 200,
       }));
-      this.setData({
-        qmingpianSummaries: summaries,
-        qmingpianHistory: res?.history || [],
-        qmingpianFamiliar: res?.familiar_persons || [],
-      });
-    } catch {
-      // silent
+      patch.qmingpianSummaries = summaries;
+      patch.qmingpianHistory = byName.history || [];
+      patch.qmingpianFamiliar = byName.familiar_persons || [];
+      // 联系方式：企名片有 → 用企名片；没有 → 保留本地（已经在 setData 设过）
+      if (byName.phone && byName.phone.length) patch.contactPhones = byName.phone;
+      if (byName.email && byName.email.length) patch.contactEmails = byName.email;
     }
+
+    if (hit && hit.cards && hit.cards.length) {
+      patch.qmingpianCards = hit.cards;
+      // 名片：默认企名片第一张（覆盖本地 fallback）
+      patch.displayCardUrl = hit.cards[0];
+    }
+
+    this.setData(patch);
   },
 
   onEdit() {
@@ -163,6 +217,25 @@ Page<PageData, {}>({
   previewCard(e: WechatMiniprogram.TouchEvent) {
     const url = e.currentTarget.dataset.url as string;
     if (!url) return;
-    wx.previewImage({ urls: [url], current: url });
+    // 如果有多张，传入全部 URL 让用户左右滑
+    const all = this.data.qmingpianCards.length > 0
+      ? this.data.qmingpianCards
+      : [url];
+    wx.previewImage({ urls: all, current: url });
+  },
+
+  onSwitchCard(e: WechatMiniprogram.TouchEvent) {
+    const url = e.currentTarget.dataset.url as string;
+    if (!url) return;
+    this.setData({ displayCardUrl: url });
+  },
+
+  onContactTap(e: WechatMiniprogram.TouchEvent) {
+    const val = e.currentTarget.dataset.val as string;
+    if (!val) return;
+    wx.setClipboardData({
+      data: val,
+      success: () => wx.showToast({ title: '已复制', icon: 'success' }),
+    });
   },
 });
