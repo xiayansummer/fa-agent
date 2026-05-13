@@ -1,6 +1,7 @@
 import { api } from '../../services/api';
 import { wsManager, type WSEvent } from '../../services/ws';
 import { formatDate } from '../../utils/time';
+import { mdToHtml } from '../../utils/markdown';
 
 interface OrchAction {
   label: string;
@@ -17,6 +18,8 @@ interface Message {
   agent?: string;
   title?: string;
   body?: string;
+  /** body 渲染版（HTML for <rich-text>），用于 agent_text 类 markdown 输出 */
+  bodyHtml?: string;
   actions?: any[];
   showStatus?: string;
   text?: string;
@@ -203,6 +206,7 @@ Page<PageData, {}>({
         kind: 'agent_text',
         agent: res.agent_role || 'orchestrator',
         body: res.reply,
+        bodyHtml: mdToHtml(res.reply || ''),
       });
 
       // 如果 Orchestrator 触发了 workflow，自动接管 WS 显示其它 agent 的进度
@@ -222,6 +226,7 @@ Page<PageData, {}>({
         kind: 'agent_text',
         agent: 'orchestrator',
         body: '回复失败，请重试',
+        bodyHtml: '<p>回复失败，请重试</p>',
       });
     }
   },

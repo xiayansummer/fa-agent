@@ -3,7 +3,11 @@
     <block wx:for="{{messages}}" wx:key="id">
       <view id="{{item.id}}">
         <view wx:if="{{item.kind === 'user'}}" class="user-bubble">{{item.text}}</view>
-        <view wx:elif="{{item.kind === 'agent_text'}}" class="agent-text agent-{{item.agent || 'content'}}">{{item.body}}</view>
+        <rich-text wx:elif="{{item.kind === 'agent_text'}}"
+                   class="agent-text agent-{{item.agent || 'content'}}"
+                   nodes="{{item.bodyHtml}}"
+                   space="nbsp" />
+
         <thinking
           wx:elif="{{item.kind === 'thinking'}}"
           agent="{{item.agent}}"

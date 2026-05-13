@@ -23,6 +23,7 @@ page { background: var(--bg-base); }
 }
 
 .agent-text {
+  display: block;
   background: #fff; padding: 24rpx;
   border-radius: 16rpx;
   margin-bottom: 16rpx;
@@ -33,6 +34,42 @@ page { background: var(--bg-base); }
 .agent-text.agent-list         { border-left-color: #8B5CF6; }
 .agent-text.agent-content      { border-left-color: #374151; }
 .agent-text.agent-outreach     { border-left-color: #F59E0B; }
+
+/* rich-text 内 markdown 样式（rich-text 不响应外部 class，用 element selector） */
+.agent-text p          { margin: 0 0 10rpx 0; }
+.agent-text p:last-child { margin-bottom: 0; }
+.agent-text strong     { font-weight: 700; color: var(--text-primary); }
+.agent-text em         { font-style: italic; }
+.agent-text code       {
+  background: #f4f4f5; color: #be185d;
+  padding: 2rpx 8rpx; border-radius: 4rpx;
+  font-size: 26rpx; font-family: monospace;
+}
+.agent-text ul, .agent-text ol { margin: 8rpx 0 12rpx 0; padding-left: 36rpx; }
+.agent-text li         { margin: 4rpx 0; }
+.agent-text h1, .agent-text h2, .agent-text h3 {
+  font-weight: 700; margin: 16rpx 0 8rpx 0;
+}
+.agent-text h1 { font-size: 32rpx; }
+.agent-text h2 { font-size: 30rpx; }
+.agent-text h3 { font-size: 28rpx; }
+.agent-text hr {
+  border: none; border-top: 1rpx solid var(--border-light);
+  margin: 16rpx 0;
+}
+.agent-text table {
+  border-collapse: collapse;
+  margin: 12rpx 0;
+  font-size: 24rpx;
+  width: 100%;
+}
+.agent-text th, .agent-text td {
+  border: 1rpx solid var(--border-light);
+  padding: 8rpx 12rpx;
+  text-align: left;
+  vertical-align: top;
+}
+.agent-text th { background: #f9fafb; font-weight: 600; }
 
 .input-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
