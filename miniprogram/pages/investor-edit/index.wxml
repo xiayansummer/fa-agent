@@ -40,6 +40,19 @@
         <view wx:else class="img-add wide" bindtap="onPickCard">+ 上传名片</view>
       </view>
     </view>
+    <view wx:if="{{qmingpianCards.length > 0}}" class="qm-cards-row">
+      <view class="qm-cards-title">企名片已绑定 {{qmingpianCards.length}} 张：</view>
+      <scroll-view scroll-x class="qm-cards-scroll">
+        <image
+          wx:for="{{qmingpianCards}}"
+          wx:key="*this"
+          class="qm-card-thumb"
+          src="{{item}}"
+          mode="aspectFill"
+          data-url="{{item}}"
+          bindtap="onPreviewQmCard" />
+      </scroll-view>
+    </view>
   </view>
 
   <view class="section">

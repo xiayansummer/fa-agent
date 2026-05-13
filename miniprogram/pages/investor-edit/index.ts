@@ -31,6 +31,8 @@ interface PageData {
   positionOptions: string[];
   /** 行业偏好：只读，从企名片 industry_info 拉取 */
   qmingpianIndustries: string[];
+  /** 企名片侧绑定的所有名片 url（同一 person_id 可能有多张） */
+  qmingpianCards: string[];
   /** 投资人标签初始值（用于判断是否变化，避免无变化时仍调 updatePersonTag） */
   qmingpianTagsOriginal: string[];
   /** 新标签输入框 */
@@ -73,6 +75,7 @@ Page<PageData, {}>({
     familiarityOptions: FAMILIARITY_OPTIONS,
     positionOptions: POSITION_OPTS,
     qmingpianIndustries: [],
+    qmingpianCards: [],
     qmingpianTagsOriginal: [],
     tagInput: '',
   },
@@ -116,7 +119,7 @@ Page<PageData, {}>({
     }
   },
 
-  /** 从企名片拉单条快照填充：投资人标签 + 关注行业 + 职务（缺失时回填）。 */
+  /** 从企名片拉单条快照填充：投资人标签 + 关注行业 + 职务 + 所有名片。 */
   async _loadQmingpianHit(name: string, agency: string) {
     if (!name) return;
     try {
@@ -124,6 +127,7 @@ Page<PageData, {}>({
         position?: string;
         tags?: string[];
         industries?: string[];
+        cards?: string[];
       }>(`/api/investors/qmingpian/searchhit?name=${encodeURIComponent(name)}` +
          (agency ? `&agency=${encodeURIComponent(agency)}` : ''),
          { silent: true });
@@ -134,6 +138,7 @@ Page<PageData, {}>({
         'form.qmingpian_tags': tags,
         qmingpianTagsOriginal: tags.slice(),
         qmingpianIndustries: industries,
+        qmingpianCards: hit.cards || [],
       };
       if (hit.position && !this.data.form.position) {
         patch['form.position'] = hit.position;
@@ -353,6 +358,12 @@ Page<PageData, {}>({
   async onPickCard() {
     const url = await this._uploadCardToQmingpian();
     if (url) this.setData({ 'form.business_card_url': url });
+  },
+
+  onPreviewQmCard(e: WechatMiniprogram.TouchEvent) {
+    const url = e.currentTarget.dataset.url as string;
+    if (!url) return;
+    wx.previewImage({ urls: this.data.qmingpianCards, current: url });
   },
 
   /** 上传名片到企名片侧 OSS（后端代理 /Upload/file）。

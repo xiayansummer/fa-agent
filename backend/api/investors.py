@@ -206,20 +206,23 @@ async def search_investors(
                 "business_card_url": row.business_card_url,
             }
 
+    # 新鉴权下 searchPerson 可能为同一 person_id 返回多条（每张名片一条）。
+    # 按 person_id 去重 + 聚合所有 url。第一次出现的条目作为字段主源。
+    seen_pids: set[str] = set()
     items = []
     for h in hits:
         pid = h.get("person_id")
-        if not pid:
+        if not pid or pid in seen_pids:
             continue
+        seen_pids.add(pid)
         local_info = local_map.get(pid)
         # 本地有则用本地，否则用企名片返回的 icon (头像) / url (名片图)
         qm_icon = h.get("icon") or None
         qm_card = h.get("url") or None
-        # 标签："美元|消费品牌|消费渠道|消费供应链" → list
+        # 标签
         raw_tag = h.get("tag") or ""
         tags = [t.strip() for t in raw_tag.split("|") if t and t.strip()]
-        # 关注行业：industry_info=[{industry, sec_industry, third_industry}, ...]
-        # 取一级 industry 去重保序
+        # 关注行业
         industries: list[str] = []
         seen: set[str] = set()
         for it in (h.get("industry_info") or []):
@@ -276,11 +279,14 @@ class EnrichedQmingpianOut(BaseModel):
 
 
 class QmingpianHitOut(BaseModel):
-    """企名片单条快照：编辑页用，标签 + 关注行业 + 职务（来自 searchPerson）。"""
+    """企名片单条快照：编辑页用，标签 + 关注行业 + 职务（来自 searchPerson）。
+    cards 包含同 person_id 所有名片 url（企名片新鉴权下 list 按名片维度返回，
+    同 person_id 会重复多次，每条对应一张名片）。"""
     person_id: Optional[str] = None
     position: Optional[str] = None
     tags: list[str] = []
     industries: list[str] = []
+    cards: list[str] = []   # 所有名片 url
 
 
 @router.get("/qmingpian/searchhit", response_model=QmingpianHitOut)
@@ -289,8 +295,8 @@ async def qmingpian_hit(
     agency: Optional[str] = Query(None, description="机构名（用于在多结果时精确定位）"),
     _: dict = Depends(get_current_ir),
 ):
-    """编辑页拉企名片单条快照（标签、关注行业、职务）。
-    用 name 调 searchPerson，agency 用于在多结果时精确匹配。查无返回空字段（200）。"""
+    """编辑页拉企名片单条快照（标签、关注行业、职务、所有名片）。
+    用 name 调 searchPerson，agency 用于在多结果时精确匹配；cards 按 person_id 聚合 url。"""
     try:
         hits = await qmingpian_search_person(name)
     except Exception:
@@ -313,6 +319,18 @@ async def qmingpian_hit(
     if pick is None:
         return QmingpianHitOut()
 
+    # 聚合同 person_id 的所有名片 url（searchPerson 新鉴权下同 person_id 可能多条）
+    target_pid = pick.get("person_id")
+    cards_seen: set[str] = set()
+    cards: list[str] = []
+    for h in hits:
+        if h.get("person_id") != target_pid:
+            continue
+        u = (h.get("url") or "").strip()
+        if u and u not in cards_seen:
+            cards.append(u)
+            cards_seen.add(u)
+
     raw_tag = pick.get("tag") or ""
     tags = [t.strip() for t in raw_tag.split("|") if t and t.strip()]
     industries: list[str] = []
@@ -327,6 +345,7 @@ async def qmingpian_hit(
         position=pick.get("zhiwu") or None,
         tags=tags,
         industries=industries,
+        cards=cards,
     )
 
 

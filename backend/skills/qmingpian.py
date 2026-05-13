@@ -22,15 +22,25 @@ def _check(resp: httpx.Response) -> dict:
 
 
 @skill(registry=skill_registry, name="企名片.查询投资人",
-       version="1.0", timeout=10, retry=2, fallback=[])
+       version="1.1", timeout=10, retry=2, fallback=[])
 async def qmingpian_search_person(keywords: str) -> list[dict]:
+    """企名片搜索投资人。
+
+    用 team_uuid + unionid 鉴权（不是 open_id）—— 这样：
+    1. 字段更全（含 zhiwu/icon/url/agency_id/case/style/is_develop）
+    2. **每张名片对应一条记录**：同 person_id 有 N 张名片就返回 N 条，
+       url 字段是该条对应的名片图。
+       前端要"拿所有名片"就按 person_id 聚合 url。
+    """
+    data = {
+        "keywords": keywords,
+        "team_uuid": settings.qmingpian_team_uuid,
+        "unionid": settings.qmingpian_unionid,
+    }
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{BASE_URL}/Person/searchPerson",
-            data=_base({"keywords": keywords}),
-        )
-    data = _check(resp)
-    return data.get("data", {}).get("list", [])
+        resp = await client.post(f"{BASE_URL}/Person/searchPerson", data=data)
+    body = _check(resp)
+    return body.get("data", {}).get("list", []) or []
 
 
 @skill(registry=skill_registry, name="企名片.添加投资人",

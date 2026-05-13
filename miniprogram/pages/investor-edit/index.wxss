@@ -197,3 +197,24 @@ page { background: var(--bg-base); }
   font-weight: 600;
 }
 .qm-tag-add.disabled { opacity: 0.4; }
+
+.qm-cards-row {
+  margin-top: 12rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid var(--border-light);
+}
+.qm-cards-title {
+  font-size: 24rpx;
+  color: var(--text-secondary);
+  margin-bottom: 8rpx;
+}
+.qm-cards-scroll { white-space: nowrap; }
+.qm-card-thumb {
+  display: inline-block;
+  width: 220rpx;
+  height: 140rpx;
+  margin-right: 12rpx;
+  border-radius: 8rpx;
+  border: 1rpx solid var(--border-light);
+  background: #f5f5f7;
+}
