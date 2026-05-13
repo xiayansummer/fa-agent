@@ -1,0 +1,410 @@
+"""Orchestrator-direct 工具：投资人 CRUD/查询、互动、企名片纪要、腾讯会议管理。
+这些工具由 Orchestrator 自己执行，不进入其他 LangGraph 工作流。"""
+from __future__ import annotations
+import logging
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models.ir_users import IRUser
+from models.investors import Investor
+from models.interaction_logs import InteractionLog
+from services import crypto_service
+from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
+from skills.qmingpian import (
+    qmingpian_search_person,
+    qmingpian_add_familiar_person,
+    qmingpian_update_familiar_person,
+    qmingpian_update_person_tags,
+    qmingpian_add_person_summary,
+)
+from .base import ToolCtx
+
+logger = logging.getLogger(__name__)
+
+AGENT_ROLE = "orchestrator"
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_tencent_meeting",
+            "description": (
+                "在腾讯会议预订/创建一场会议。当 IR 说「安排会议」「约会议」「开个会」等意图时直接调用，"
+                "不要追问。subject 根据用户上下文推断；start_time 没明确时用 30 分钟后的下一个整点；"
+                "end_time 默认 start_time 后 1 小时。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string", "description": "会议主题"},
+                    "start_time": {"type": "string", "description": "ISO 8601 开始时间"},
+                    "end_time": {"type": "string", "description": "ISO 8601 结束时间，默认 start_time + 1 小时"},
+                },
+                "required": ["subject", "start_time", "end_time"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_my_upcoming_meetings",
+            "description": "列出当前 IR 即将开始/进行中的腾讯会议，每条含 meeting_id、subject、start_time、end_time。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_tencent_meeting",
+            "description": (
+                "取消已预订的腾讯会议（不可逆！）。规则：用户首次说取消时**不要直接调用**——先在回复里复述会议主题/会议号，"
+                "等用户下一轮明确「确认」「是」「ok」等之后再调用。若用户直接给出明确 meeting_id 且语气坚定，可一次性调用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "meeting_id": {"type": "string"},
+                    "reason_detail": {"type": "string"},
+                },
+                "required": ["meeting_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_investor",
+            "description": (
+                "通过姓名/机构关键字搜索投资人。返回 investor_id (本地ID)、person_id、name、agency、position、in_my_library、familiarity。"
+                "当用户提到某投资人名字但你不知道 investor_id 时，**先调本工具拿 ID 再做其他操作**。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"keywords": {"type": "string"}},
+                "required": ["keywords"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_investor_familiarity",
+            "description": (
+                "设置投资人熟悉度（本地+企名片双写）。level ∈ "
+                "{'未接触','加过微信','见过面','了解投资偏好','跟进过我们的项目','好友'}。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "investor_id": {"type": "integer"},
+                    "level": {"type": "string"},
+                },
+                "required": ["investor_id", "level"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_investor_tags",
+            "description": "覆盖式设置投资人在企名片的标签（如「美元」「消费品牌」）。tags=[] 表示清空。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "investor_id": {"type": "integer"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["investor_id", "tags"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_person_summary",
+            "description": "为某投资人写一条纪要保存到企名片。建议 50-300 字。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "investor_id": {"type": "integer"},
+                    "summary": {"type": "string"},
+                },
+                "required": ["investor_id", "summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_interaction",
+            "description": (
+                "记录一条与投资人的互动。type ∈ {'meeting','call','wechat','email','push','other'}。"
+                "occurred_at 不传默认现在。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "investor_id": {"type": "integer"},
+                    "type": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "occurred_at": {"type": "string"},
+                    "duration_min": {"type": "integer"},
+                    "next_followup_at": {"type": "string"},
+                },
+                "required": ["investor_id", "type", "summary"],
+            },
+        },
+    },
+]
+
+
+# ============ private helpers ============
+
+async def _get_tencent_client(ctx: ToolCtx) -> Optional[TencentMeetingClient]:
+    user = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    if not user or not user.tencent_meeting_token_encrypted:
+        return None
+    try:
+        token = crypto_service.decrypt(user.tencent_meeting_token_encrypted)
+    except Exception:
+        return None
+    return TencentMeetingClient(token=token)
+
+
+async def _resolve_investor(ctx: ToolCtx, investor_id: int) -> Optional[Investor]:
+    res = await ctx.db.execute(
+        select(Investor).where(Investor.id == investor_id, Investor.is_active == True)
+    )
+    return res.scalar_one_or_none()
+
+
+# ============ tool implementations ============
+
+async def _schedule_meeting(args: dict, ctx: ToolCtx) -> dict:
+    client = await _get_tencent_client(ctx)
+    if client is None:
+        return {"error": "IR 未配置腾讯会议 token，请前往「我」→「腾讯会议接入」配置"}
+    try:
+        result = await client.schedule_meeting(
+            subject=args.get("subject", "").strip() or "FA Agent 预订会议",
+            start_time=args["start_time"],
+            end_time=args["end_time"],
+        )
+    except TencentAuthError:
+        return {"error": "腾讯会议 token 已失效，请重新配置"}
+    except TencentToolError as e:
+        return {"error": f"腾讯会议返回错误：{e}"}
+    except Exception as e:
+        return {"error": f"调用失败：{e}"}
+    info = result.get("meeting_info_list") or [result]
+    first = info[0] if isinstance(info, list) and info else result
+    return {
+        "ok": True,
+        "meeting_code": first.get("meeting_code") or first.get("meeting_id_str") or "",
+        "meeting_id": first.get("meeting_id") or "",
+        "join_url": first.get("join_url") or "",
+        "subject": first.get("subject") or args.get("subject"),
+        "start_time": first.get("start_time") or args.get("start_time"),
+        "end_time": first.get("end_time") or args.get("end_time"),
+    }
+
+
+async def _list_upcoming_meetings(args: dict, ctx: ToolCtx) -> dict:
+    client = await _get_tencent_client(ctx)
+    if client is None:
+        return {"error": "IR 未配置腾讯会议 token"}
+    try:
+        raw = await client.list_upcoming_meetings()
+    except TencentAuthError:
+        return {"error": "腾讯会议 token 已失效"}
+    except Exception as e:
+        return {"error": f"调用失败：{e}"}
+    items = [
+        {
+            "meeting_id": str(m.get("meeting_id") or ""),
+            "meeting_code": str(m.get("meeting_code") or m.get("meeting_id_str") or ""),
+            "subject": m.get("subject") or "",
+            "start_time": m.get("start_time") or "",
+            "end_time": m.get("end_time") or "",
+        }
+        for m in raw
+    ]
+    return {"ok": True, "meetings": items, "count": len(items)}
+
+
+async def _cancel_meeting(args: dict, ctx: ToolCtx) -> dict:
+    mid = (args.get("meeting_id") or "").strip()
+    if not mid:
+        return {"error": "meeting_id 不能为空"}
+    client = await _get_tencent_client(ctx)
+    if client is None:
+        return {"error": "IR 未配置腾讯会议 token"}
+    try:
+        await client.cancel_meeting(meeting_id=mid, reason_detail=args.get("reason_detail", "") or "")
+    except TencentAuthError:
+        return {"error": "腾讯会议 token 已失效"}
+    except TencentToolError as e:
+        return {"error": f"腾讯会议返回错误：{e}"}
+    except Exception as e:
+        return {"error": f"调用失败：{e}"}
+    return {"ok": True, "meeting_id": mid}
+
+
+async def _search_investor(args: dict, ctx: ToolCtx) -> dict:
+    keywords = (args.get("keywords") or "").strip()
+    if not keywords:
+        return {"error": "keywords 不能为空"}
+    try:
+        hits = await qmingpian_search_person(keywords)
+    except Exception as e:
+        return {"error": f"企名片搜索失败：{e}"}
+    person_ids = [h.get("person_id") for h in hits if h.get("person_id")]
+    local_map: dict[str, Investor] = {}
+    if person_ids:
+        rows = (await ctx.db.execute(
+            select(Investor).where(
+                Investor.qmingpian_person_id.in_(person_ids),
+                Investor.is_active == True,
+            )
+        )).scalars().all()
+        for inv in rows:
+            local_map[inv.qmingpian_person_id] = inv
+    seen: set[str] = set()
+    items = []
+    for h in hits:
+        pid = h.get("person_id")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        local = local_map.get(pid)
+        items.append({
+            "investor_id": local.id if local else None,
+            "person_id": pid,
+            "name": h.get("name", ""),
+            "agency": h.get("agency", ""),
+            "position": h.get("zhiwu") or "",
+            "in_my_library": local is not None,
+            "familiarity": local.familiarity if local else None,
+        })
+    return {"ok": True, "count": len(items), "results": items[:10]}
+
+
+async def _set_familiarity(args: dict, ctx: ToolCtx) -> dict:
+    inv_id = args.get("investor_id")
+    level = (args.get("level") or "").strip()
+    if not inv_id or not level:
+        return {"error": "investor_id 和 level 都必填"}
+    inv = await _resolve_investor(ctx, inv_id)
+    if not inv:
+        return {"error": f"investor_id={inv_id} 不存在"}
+    prev = inv.familiarity
+    ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    if ir_row and ir_row.qmingpian_username and inv.qmingpian_person_id:
+        try:
+            fn = qmingpian_update_familiar_person if prev else qmingpian_add_familiar_person
+            await fn(name=inv.name, agency=inv.agency or "", user_name=ir_row.qmingpian_username, level=level)
+        except Exception as e:
+            logger.warning("familiarity sync to qmingpian failed: %s", e)
+            return {"error": f"企名片同步失败：{e}"}
+    inv.familiarity = level
+    await ctx.db.commit()
+    return {"ok": True, "investor_id": inv_id, "name": inv.name, "level": level}
+
+
+async def _set_tags(args: dict, ctx: ToolCtx) -> dict:
+    inv_id = args.get("investor_id")
+    tags = args.get("tags")
+    if not inv_id or tags is None:
+        return {"error": "investor_id 和 tags 都必填"}
+    if not isinstance(tags, list):
+        return {"error": "tags 必须是字符串数组"}
+    inv = await _resolve_investor(ctx, inv_id)
+    if not inv:
+        return {"error": f"investor_id={inv_id} 不存在"}
+    try:
+        await qmingpian_update_person_tags(name=inv.name, agency=inv.agency or "", tags=tags)
+    except Exception as e:
+        return {"error": f"企名片同步失败：{e}"}
+    return {"ok": True, "investor_id": inv_id, "name": inv.name, "tags": tags}
+
+
+async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
+    inv_id = args.get("investor_id")
+    summary = (args.get("summary") or "").strip()
+    if not inv_id or not summary:
+        return {"error": "investor_id 和 summary 都必填"}
+    inv = await _resolve_investor(ctx, inv_id)
+    if not inv:
+        return {"error": f"investor_id={inv_id} 不存在"}
+    ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    if not ir_row or not ir_row.qmingpian_username:
+        return {"error": "当前 IR 未配置企名片用户名"}
+    try:
+        await qmingpian_add_person_summary(
+            name=inv.name, agency=inv.agency or "",
+            summary=summary, user_name=ir_row.qmingpian_username,
+        )
+    except Exception as e:
+        return {"error": f"企名片写入纪要失败：{e}"}
+    return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
+
+
+_INTERACTION_TYPES = {"meeting", "call", "wechat", "email", "push", "other"}
+
+
+async def _record_interaction(args: dict, ctx: ToolCtx) -> dict:
+    inv_id = args.get("investor_id")
+    itype = (args.get("type") or "").strip()
+    summary = (args.get("summary") or "").strip()
+    if not inv_id or not itype or not summary:
+        return {"error": "investor_id, type, summary 都必填"}
+    if itype not in _INTERACTION_TYPES:
+        return {"error": f"type 必须是 {_INTERACTION_TYPES}"}
+    inv = await _resolve_investor(ctx, inv_id)
+    if not inv:
+        return {"error": f"investor_id={inv_id} 不存在"}
+    occurred_at = args.get("occurred_at")
+    try:
+        occ_dt = datetime.fromisoformat(occurred_at) if occurred_at else datetime.now()
+    except ValueError:
+        return {"error": f"occurred_at 格式无效：{occurred_at}"}
+    nxt = args.get("next_followup_at")
+    try:
+        nxt_dt = datetime.fromisoformat(nxt) if nxt else None
+    except ValueError:
+        return {"error": f"next_followup_at 格式无效：{nxt}"}
+    log = InteractionLog(
+        investor_id=inv_id, ir_id=ctx.ir_id, type=itype,
+        occurred_at=occ_dt,
+        duration_min=args.get("duration_min"),
+        summary=summary,
+        next_followup_at=nxt_dt,
+        agent_generated=False,
+    )
+    ctx.db.add(log)
+    if not inv.last_interaction_at or occ_dt > inv.last_interaction_at:
+        inv.last_interaction_at = occ_dt
+    await ctx.db.commit()
+    await ctx.db.refresh(log)
+    return {"ok": True, "interaction_id": log.id, "investor_id": inv_id, "name": inv.name, "type": itype}
+
+
+_DISPATCH = {
+    "schedule_tencent_meeting":  _schedule_meeting,
+    "list_my_upcoming_meetings": _list_upcoming_meetings,
+    "cancel_tencent_meeting":    _cancel_meeting,
+    "search_investor":           _search_investor,
+    "set_investor_familiarity":  _set_familiarity,
+    "set_investor_tags":         _set_tags,
+    "add_person_summary":        _add_summary,
+    "record_interaction":        _record_interaction,
+}
+
+
+async def dispatch(name: str, args: dict, ctx: ToolCtx) -> dict:
+    fn = _DISPATCH.get(name)
+    if fn is None:
+        return {"error": f"direct: 未知工具 {name}"}
+    return await fn(args, ctx)
