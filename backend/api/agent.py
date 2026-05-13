@@ -1,15 +1,26 @@
 from __future__ import annotations
+import json
+import logging
 import uuid
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from auth.jwt import decode_token, get_current_ir
+from database import get_db
 from agent.runner import run, resume, get_graph
 from agent.events import subscribe
 from agent.state import AgentState, TaskType, IrAction
 from redis_client import get_redis
 from skills.claude_skill import _client
 from config import settings
+from models.ir_users import IRUser
+from services import crypto_service
+from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -225,26 +236,136 @@ async def get_thread_state(
     return StateResponse(status="running", current_node=current)
 
 
+_CHAT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_tencent_meeting",
+            "description": (
+                "在腾讯会议预订/创建一场会议。当 IR 说「安排会议」「约会议」「开个会」等意图时直接调用，"
+                "不要追问。subject 根据用户上下文推断；start_time 没明确时用 30 分钟后的下一个整点；"
+                "end_time 默认 start_time 后 1 小时。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string", "description": "会议主题"},
+                    "start_time": {"type": "string", "description": "ISO 8601 开始时间，如 2026-05-13T15:30:00+08:00"},
+                    "end_time": {"type": "string", "description": "ISO 8601 结束时间，默认 start_time + 1 小时"},
+                },
+                "required": ["subject", "start_time", "end_time"],
+            },
+        },
+    },
+]
+
+
+async def _exec_schedule_tencent_meeting(ir_id: int, args: dict, db: AsyncSession) -> dict:
+    """执行 schedule_tencent_meeting tool。返回 {ok, meeting_code, join_url, subject, start_time, end_time} 或 {error}。"""
+    user = (await db.execute(select(IRUser).where(IRUser.id == ir_id))).scalar_one_or_none()
+    if not user or not user.tencent_meeting_token_encrypted:
+        return {"error": "IR 未配置腾讯会议 token，请前往「我」→「腾讯会议接入」配置"}
+    try:
+        token = crypto_service.decrypt(user.tencent_meeting_token_encrypted)
+    except Exception:
+        return {"error": "腾讯会议 token 解密失败，请重新配置"}
+    client = TencentMeetingClient(token=token)
+    try:
+        result = await client.schedule_meeting(
+            subject=args.get("subject", "").strip() or "FA Agent 预订会议",
+            start_time=args["start_time"],
+            end_time=args["end_time"],
+        )
+    except TencentAuthError:
+        return {"error": "腾讯会议 token 已失效，请重新配置"}
+    except TencentToolError as e:
+        return {"error": f"腾讯会议返回错误：{e}"}
+    except Exception as e:
+        return {"error": f"调用失败：{e}"}
+
+    # 腾讯返回结构：meeting_info_list 数组或顶层字段
+    info = result.get("meeting_info_list") or [result]
+    first = info[0] if isinstance(info, list) and info else result
+    return {
+        "ok": True,
+        "meeting_code": first.get("meeting_code") or first.get("meeting_id_str") or "",
+        "meeting_id": first.get("meeting_id") or "",
+        "join_url": first.get("join_url") or "",
+        "subject": first.get("subject") or args.get("subject"),
+        "start_time": first.get("start_time") or args.get("start_time"),
+        "end_time": first.get("end_time") or args.get("end_time"),
+    }
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def free_chat(
     body: ChatRequest,
+    db: AsyncSession = Depends(get_db),
     current_ir: dict = Depends(get_current_ir),
 ):
-    """Free-form chat with the AI. Stateless (no DB write). Pass history for multi-turn context."""
-    # Cap history at last 10 messages (defensive even if frontend respects limit)
-    history = body.history[-10:] if body.history else []
+    """Free-form chat with the AI; supports tool calling.
 
-    # Build OpenAI-format messages
-    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    当前可用工具：
+      - schedule_tencent_meeting: 预订腾讯会议
+    """
+    history = body.history[-10:] if body.history else []
+    now = datetime.now()
+    default_start = (now + timedelta(minutes=30)).replace(second=0, microsecond=0)
+    default_end = default_start + timedelta(hours=1)
+    system_prompt = (
+        f"{_SYSTEM_PROMPT}\n\n"
+        f"当前时间：{now.strftime('%Y-%m-%d %H:%M:%S')} (Asia/Shanghai)\n"
+        f"如要预订会议且用户未指定具体时间，默认开始 = {default_start.isoformat()}+08:00，"
+        f"结束 = {default_end.isoformat()}+08:00（30 分钟后开 1 小时）。\n"
+        "工具调用成功后，用一段简短的人话告诉用户：主题、时间、会议号、入会链接（如果有）。"
+    )
+    messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
         if msg.role in ("user", "assistant"):
             messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": body.message})
 
-    response = await _client.chat.completions.create(
-        model=settings.ai_model,
-        max_tokens=1024,
-        temperature=0.5,
-        messages=messages,
-    )
-    return ChatResponse(reply=response.choices[0].message.content)
+    ir_id = current_ir["ir_id"]
+    # 工具调用循环（最多 4 轮，避免死循环）
+    for step in range(4):
+        resp = await _client.chat.completions.create(
+            model=settings.ai_model,
+            max_tokens=1024,
+            temperature=0.3,
+            messages=messages,
+            tools=_CHAT_TOOLS,
+        )
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None)
+        if not tool_calls:
+            return ChatResponse(reply=msg.content or "")
+        # 把 assistant 工具调用消息加进 history
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in tool_calls
+            ],
+        })
+        # 执行每个 tool call，把结果作为 tool message append
+        for tc in tool_calls:
+            fname = tc.function.name
+            try:
+                fargs = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                fargs = {}
+            if fname == "schedule_tencent_meeting":
+                result = await _exec_schedule_tencent_meeting(ir_id, fargs, db)
+            else:
+                result = {"error": f"未知工具：{fname}"}
+            logger.info("chat tool_call ir=%s tool=%s args=%s result=%s",
+                        ir_id, fname, fargs, result)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(result, ensure_ascii=False),
+            })
+        # 继续下一轮让 LLM 总结回复
+    return ChatResponse(reply="（工具调用次数超出限制，请重试）")

@@ -104,3 +104,24 @@ class TencentMeetingClient:
         })
         # 返回 dict 里 minutes 字段或类似，spike 没充分验证因为没录制
         return result.get("minutes") or result.get("smart_minutes") or json.dumps(result, ensure_ascii=False)
+
+    async def schedule_meeting(
+        self,
+        subject: str,
+        start_time: str,
+        end_time: str,
+        password: str = "",
+        meeting_type: int = 0,
+    ) -> dict:
+        """创建/预订一场会议。subject/start_time/end_time 必填。
+        start_time/end_time 是 ISO 8601 字符串（如 '2026-05-13T15:30:00+08:00'）。
+        返回 dict 含 meeting_code / join_url / meeting_id 等。"""
+        args = {
+            "subject": subject,
+            "start_time": start_time,
+            "end_time": end_time,
+            "meeting_type": meeting_type,
+        }
+        if password:
+            args["password"] = password
+        return await self._call("schedule_meeting", args)
