@@ -92,6 +92,28 @@ async def qmingpian_edit_person(
     return _check(resp).get("data", {})
 
 
+@skill(registry=skill_registry, name="企名片.上传文件",
+       version="1.0", timeout=60, retry=1)
+async def qmingpian_upload_file(
+    file_bytes: bytes,
+    filename: str,
+    mime_type: str = "application/octet-stream",
+) -> dict:
+    """上传任意文件到企名片侧 OSS（用于名片图等）。
+
+    返回：{url, md5, size, file_name, ext}
+    企名片实际返回结构是 data.list.{...}，内部已剥包装。
+    """
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{BASE_URL}/Upload/file",
+            data={"open_id": settings.qmingpian_token},
+            files={"file": (filename, file_bytes, mime_type)},
+        )
+    data = _check(resp)
+    return (data.get("data", {}) or {}).get("list", {}) or {}
+
+
 @skill(registry=skill_registry, name="企名片.设置投资人熟悉度",
        version="1.0", timeout=10, retry=1)
 async def qmingpian_add_familiar_person(

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from typing import Optional
@@ -17,6 +17,7 @@ from skills.qmingpian import (
     qmingpian_add_familiar_person,
     qmingpian_update_familiar_person,
     qmingpian_update_person_tags,
+    qmingpian_upload_file,
 )
 import logging
 
@@ -319,6 +320,46 @@ async def qmingpian_hit(
         position=pick.get("zhiwu") or None,
         tags=tags,
         industries=industries,
+    )
+
+
+class CardUploadOut(BaseModel):
+    url: str
+    size: Optional[str] = None
+    file_name: Optional[str] = None
+
+
+@router.post("/upload-business-card", response_model=CardUploadOut)
+async def upload_business_card(
+    file: UploadFile = File(...),
+    _: dict = Depends(get_current_ir),
+):
+    """名片上传：把 IR 选好的图片转发给企名片 /Upload/file，存到企名片侧 OSS。
+    返回 URL 由前端写入 form.business_card_url 并随 PUT/POST 持久化到本地 DB。
+
+    生产部署提醒：返回 URL 域名 qimingpianfile.investarget.com 必须加入小程序
+    后台「downloadFile 合法域名」白名单，否则 image 标签加载不出。
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件为空")
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片超过 20MB")
+    try:
+        res = await qmingpian_upload_file(
+            file_bytes=content,
+            filename=file.filename or "card.jpg",
+            mime_type=file.content_type or "image/jpeg",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"企名片上传失败: {e}")
+    url = (res or {}).get("url")
+    if not url:
+        raise HTTPException(status_code=502, detail=f"企名片未返回 url: {res}")
+    return CardUploadOut(
+        url=url,
+        size=str(res.get("size") or ""),
+        file_name=res.get("file_name"),
     )
 
 

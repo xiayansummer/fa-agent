@@ -331,8 +331,58 @@ Page<PageData, {}>({
   },
 
   async onPickCard() {
-    const url = await this._uploadImage('image');
+    const url = await this._uploadCardToQmingpian();
     if (url) this.setData({ 'form.business_card_url': url });
+  },
+
+  /** 上传名片到企名片侧 OSS（后端代理 /Upload/file）。
+   *  返回企名片返回的 url，已是公网可访问 https。
+   */
+  async _uploadCardToQmingpian(): Promise<string | null> {
+    const file: any = await new Promise(resolve => {
+      wx.chooseImage({
+        count: 1,
+        sizeType: ['compressed'],
+        sourceType: ['album', 'camera'],
+        success: r => resolve(r.tempFiles[0]),
+        fail: () => resolve(null),
+      });
+    });
+    if (!file) return null;
+    if (file.size > 20 * 1024 * 1024) {
+      wx.showToast({ title: '图片超过 20MB', icon: 'none' });
+      return null;
+    }
+    const jwt = (wx.getStorageSync('mro:jwt') as string) || '';
+    if (!jwt) {
+      wx.showToast({ title: '请先登录', icon: 'none' });
+      return null;
+    }
+    wx.showLoading({ title: '上传中...', mask: true });
+    try {
+      const app = getApp<IAppOption>();
+      const res = await new Promise<{ statusCode: number; data: string }>((resolve, reject) => {
+        wx.uploadFile({
+          url: `${app.globalData.apiBase}/api/investors/upload-business-card`,
+          filePath: file.path,
+          name: 'file',
+          header: { Authorization: `Bearer ${jwt}` },
+          success: r => resolve(r),
+          fail: err => reject(new Error(err.errMsg || 'upload failed')),
+        });
+      });
+      if (res.statusCode !== 200) {
+        throw new Error(`HTTP ${res.statusCode}`);
+      }
+      const body = JSON.parse(res.data);
+      if (!body.url) throw new Error(body.detail || '后端未返回 url');
+      return body.url as string;
+    } catch (e: any) {
+      wx.showToast({ title: e?.message || '上传失败', icon: 'none' });
+      return null;
+    } finally {
+      wx.hideLoading();
+    }
   },
 
   onClearCard() {
