@@ -10,6 +10,7 @@ from typing import Optional
 from pydantic import BaseModel
 from database import get_db
 from models.investors import Investor
+from models.interaction_logs import InteractionLog
 from models.ir_users import IRUser
 from auth.jwt import get_current_ir
 from redis_client import get_redis
@@ -114,15 +115,41 @@ async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
     return items
 
 
-def _compute_events_for_day(investors, target_date: date) -> list[CalendarEvent]:
-    """Return all CalendarEvent objects for a given date across all investors."""
+def _compute_events_for_day(
+    investors,
+    target_date: date,
+    action_followups: Optional[dict[int, list[tuple[str, str]]]] = None,
+) -> list[CalendarEvent]:
+    """Return all CalendarEvent objects for a given date.
+    action_followups: investor_id → list of (action_title, action_summary) for that date,
+    coming from interaction_logs.next_followup_at hits (会议纪要里抽出的 action items).
+    """
     events: list[CalendarEvent] = []
+    inv_by_id = {inv.id: inv for inv in investors}
+
+    # 1) Action-item 触发的 followup（更精准，优先于"14 天未跟进"）
+    if action_followups:
+        for inv_id, actions in action_followups.items():
+            inv = inv_by_id.get(inv_id)
+            if not inv:
+                continue
+            for title, summary in actions:
+                events.append(CalendarEvent(
+                    time="09:00",
+                    type="followup",
+                    title=title,
+                    description=summary or f"来自近期会议纪要的待办",
+                    investor_id=inv.id,
+                    investor_name=inv.name,
+                    action_label="执行",
+                    action_prefill=f"帮我跟进{inv.name}：{title}",
+                ))
 
     for inv in investors:
-        # Followup: last interaction >= 14 days ago
+        # Followup: last interaction >= 14 days ago（兜底定期提醒，不和 action_followup 重复）
         if inv.last_interaction_at:
             days_since = (target_date - inv.last_interaction_at.date()).days
-            if days_since >= 14:
+            if days_since >= 14 and not (action_followups and inv.id in action_followups):
                 events.append(CalendarEvent(
                     time="09:00",
                     type="followup",
@@ -180,7 +207,24 @@ async def get_daily_calendar(
     result = await db.execute(select(Investor).where(Investor.is_active == True))
     investors = result.scalars().all()
 
-    events = _compute_events_for_day(investors, cal_date)
+    # 当日的 action-item followup（来自 interaction_logs.next_followup_at 命中）
+    from datetime import datetime as _dt
+    day_start = _dt.combine(cal_date, _dt.min.time())
+    day_end = _dt.combine(cal_date, _dt.max.time())
+    fl_rows = (await db.execute(
+        select(InteractionLog).where(
+            InteractionLog.next_followup_at.is_not(None),
+            InteractionLog.next_followup_at >= day_start,
+            InteractionLog.next_followup_at <= day_end,
+            InteractionLog.ir_id == ir_id,
+        )
+    )).scalars().all()
+    action_followups: dict[int, list[tuple[str, str]]] = {}
+    for log in fl_rows:
+        title = f"跟进 action：{(log.summary or '')[:30]}"
+        action_followups.setdefault(log.investor_id, []).append((title, log.summary or ""))
+
+    events = _compute_events_for_day(investors, cal_date, action_followups=action_followups)
 
     # 腾讯会议：当日所有会议合并进事件流
     meetings = await _load_tencent_meetings(db, ir_id)
@@ -225,11 +269,34 @@ async def get_month_calendar(
     meetings = await _load_tencent_meetings(db, current_ir["ir_id"])
     meeting_dates: set[str] = {m["date"] for m in meetings}
 
+    # 当月范围的 action-item followup（一次性 prefetch 按日期分组）
+    from datetime import datetime as _dt
+    month_start = _dt.combine(date(year, month_num, 1), _dt.min.time())
+    month_end = _dt.combine(date(year, month_num, last_day_num), _dt.max.time())
+    fl_rows = (await db.execute(
+        select(InteractionLog).where(
+            InteractionLog.next_followup_at.is_not(None),
+            InteractionLog.next_followup_at >= month_start,
+            InteractionLog.next_followup_at <= month_end,
+            InteractionLog.ir_id == current_ir["ir_id"],
+        )
+    )).scalars().all()
+    followups_by_date: dict[str, dict[int, list[tuple[str, str]]]] = {}
+    for log in fl_rows:
+        ds = log.next_followup_at.date().isoformat()
+        title = f"跟进 action：{(log.summary or '')[:30]}"
+        followups_by_date.setdefault(ds, {}).setdefault(log.investor_id, []).append(
+            (title, log.summary or "")
+        )
+
     days: dict[str, list[str]] = {}
     for day_num in range(1, last_day_num + 1):
         target_date = date(year, month_num, day_num)
         date_str = str(target_date)
-        events = _compute_events_for_day(investors, target_date)
+        events = _compute_events_for_day(
+            investors, target_date,
+            action_followups=followups_by_date.get(date_str),
+        )
         # Collect unique event types, preserving first-occurrence order
         seen: dict[str, None] = {}
         for e in events:

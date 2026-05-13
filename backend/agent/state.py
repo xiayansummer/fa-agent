@@ -46,6 +46,12 @@ class AgentState(TypedDict):
     # minutes, written to InteractionLog.summary (Content Agent step).
     interaction_summary: Optional[str]
 
+    # meeting_minutes: action items extracted from final minutes —
+    # list of {title, type, due_date}. First due_date drives the
+    # InteractionLog.next_followup_at; meeting_request items trigger
+    # the Outreach Agent to draft an invitation message.
+    action_items: Optional[list]
+
     # Output
     draft: Optional[str]
     final: Optional[str]

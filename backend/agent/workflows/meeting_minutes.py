@@ -95,14 +95,125 @@ async def summarize_for_interaction_node(state: AgentState) -> dict:
     }
 
 
+async def extract_action_items_node(state: AgentState) -> dict:
+    """Content Agent：从纪要里解析 action items + 推断 due_date。"""
+    if state.get("ir_action") == "rejected":
+        return {"action_items": []}
+    final_content = (state.get("final") or "").strip()
+    if not final_content:
+        return {"action_items": []}
+    from datetime import date
+    today_iso = date.today().isoformat()
+    try:
+        escaped = final_content.replace("{", "{{").replace("}", "}}")
+        context = prompt_registry.get(
+            "meeting_minutes.action_items",
+            variables={"full_minutes": escaped, "today_iso": today_iso},
+        )
+        raw = await skill_registry.call("Claude.生成内容", context=context, max_tokens=600)
+        import json as _json
+        parsed = _json.loads((raw or "").strip())
+        if not isinstance(parsed, list):
+            parsed = []
+        # 限 5 条 + 字段校验
+        items = []
+        for it in parsed[:5]:
+            if not isinstance(it, dict):
+                continue
+            title = (it.get("title") or "").strip()
+            t = (it.get("type") or "other").strip()
+            due = (it.get("due_date") or "").strip()
+            if title and due:
+                items.append({"title": title, "type": t, "due_date": due})
+        return {
+            "action_items": items,
+            "skills_called": ["Claude.生成内容(action_items)"],
+        }
+    except Exception as e:
+        logger.warning("extract_action_items failed: %s", e)
+        return {"action_items": []}
+
+
+async def dispatch_outreach_node(state: AgentState) -> dict:
+    """Outreach Agent：对 meeting_request 类型 action 生成预约文本，写 OutreachRecord(draft)。"""
+    if state.get("ir_action") == "rejected":
+        return {}
+    items = state.get("action_items") or []
+    if not items:
+        return {}
+    investor_ids = state.get("investor_ids") or []
+    if not investor_ids:
+        return {}
+    requests = [it for it in items if (it.get("type") == "meeting_request")]
+    if not requests:
+        return {}
+
+    summary = (state.get("interaction_summary") or "").strip()
+    if not summary:
+        # Fallback：使用 final 前 200 字
+        summary = (state.get("final") or "")[:200]
+
+    async with AsyncSessionLocal() as db:
+        inv_rows = (await db.execute(
+            select(Investor).where(Investor.id.in_(investor_ids))
+        )).scalars().all()
+        inv_map = {inv.id: inv for inv in inv_rows}
+
+        drafts_written = 0
+        for inv_id in investor_ids:
+            inv = inv_map.get(inv_id)
+            if not inv:
+                continue
+            for action in requests:
+                try:
+                    context = prompt_registry.get(
+                        "outreach_agent.meeting_request",
+                        variables={
+                            "investor_name": inv.name,
+                            "investor_agency": (inv.agency or "").replace("{", "{{").replace("}", "}}"),
+                            "minutes_summary": summary.replace("{", "{{").replace("}", "}}"),
+                            "action_title": action["title"].replace("{", "{{").replace("}", "}}"),
+                            "due_date": action["due_date"],
+                        },
+                    )
+                    msg = await skill_registry.call("Claude.生成内容", context=context, max_tokens=400)
+                    msg = (msg or "").strip()
+                    if not msg:
+                        continue
+                    db.add(OutreachRecord(
+                        investor_id=inv_id,
+                        ir_id=state["ir_id"],
+                        type="milestone_message",  # 复用现有枚举，语义最近
+                        content=msg,
+                        status="draft",
+                    ))
+                    drafts_written += 1
+                except Exception as e:
+                    logger.warning("outreach meeting_request draft failed: %s", e)
+        await db.commit()
+    if drafts_written:
+        return {"skills_called": [f"Claude.生成内容(outreach_预约×{drafts_written})"]}
+    return {}
+
+
 async def save_node(state: AgentState) -> dict:
-    from datetime import datetime
+    from datetime import datetime, date as _date
     from models.investors import Investor
     from sqlalchemy import select
     final_content = state.get("final") or ""
     short_summary = (state.get("interaction_summary") or "").strip() or final_content[:120]
     investor_ids = state.get("investor_ids") or []
     occurred_at = datetime.now()
+    # 取 action_items 里最早的 due_date 作为 next_followup_at
+    next_followup_dt = None
+    for ai in (state.get("action_items") or []):
+        try:
+            d = _date.fromisoformat(ai["due_date"])
+            dt = datetime.combine(d, datetime.min.time())
+            if next_followup_dt is None or dt < next_followup_dt:
+                next_followup_dt = dt
+        except Exception:
+            continue
     async with AsyncSessionLocal() as db:
         if state.get("ir_action") != "rejected" and investor_ids:
             inv_rows = (await db.execute(
@@ -118,6 +229,7 @@ async def save_node(state: AgentState) -> dict:
                     occurred_at=occurred_at,
                     summary=short_summary,            # Content Agent 二次提炼的短摘要
                     raw_content=state.get("transcript") or "",
+                    next_followup_at=next_followup_dt,  # 最早 action item 的 due_date
                     agent_generated=True,
                 ))
                 db.add(OutreachRecord(
@@ -153,7 +265,9 @@ builder.add_node("transcribe", transcribe_node)
 builder.add_node("generate", generate_node)
 builder.add_node("review", review_node)
 builder.add_node("summarize_for_interaction", summarize_for_interaction_node)
+builder.add_node("extract_action_items", extract_action_items_node)
 builder.add_node("save", save_node)
+builder.add_node("dispatch_outreach", dispatch_outreach_node)
 
 builder.add_edge(START, "fetch_profiles")
 builder.add_edge("fetch_profiles", "fetch_tencent_minutes")
@@ -161,7 +275,9 @@ builder.add_edge("fetch_tencent_minutes", "transcribe")
 builder.add_edge("transcribe", "generate")
 builder.add_edge("generate", "review")
 builder.add_edge("review", "summarize_for_interaction")
-builder.add_edge("summarize_for_interaction", "save")
+builder.add_edge("summarize_for_interaction", "extract_action_items")
+builder.add_edge("extract_action_items", "save")
+builder.add_edge("save", "dispatch_outreach")
 builder.add_edge("save", END)
 
 meeting_minutes_graph = builder.compile(checkpointer=_checkpointer)

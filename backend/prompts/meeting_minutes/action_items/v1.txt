@@ -1,0 +1,33 @@
+从下面的会议纪要里抽取所有 action items（需要 IR 主动跟进的事项），输出严格 JSON 数组。
+
+会议纪要：
+{full_minutes}
+
+## 当前参考时间
+{today_iso}
+
+## 输出格式
+严格 JSON 数组，不要 markdown 代码块包裹。每项格式：
+{{
+  "title": "10-30 字简短描述，如 '给张慧明发 DataPack'",
+  "type": "send_material" | "followup_call" | "meeting_request" | "other",
+  "due_date": "ISO 8601 日期 YYYY-MM-DD"
+}}
+
+## 规则
+1. 只抽 IR 这边要做的事（不抽对方要做的）。
+2. due_date 必填：
+   - "今天" / "明天" → 对应日期
+   - "两天内" / "三天后" → 今天 + 天数
+   - "下周" → 今天 + 5~7 天
+   - "下下周" → 今天 + 12~14 天
+   - 没明确时间但意图明确 → 今天 + 3 天（默认 3 天后）
+3. type 推断：
+   - "发资料/DataPack/Term Sheet/PPT" → send_material
+   - "电话跟进/微信联系" → followup_call
+   - "约见面/路演/线下" → meeting_request
+   - 其它 → other
+4. 没有 action 时输出 []。
+5. 最多 5 条。
+
+只输出 JSON，不要任何解释。

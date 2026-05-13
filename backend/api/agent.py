@@ -128,6 +128,7 @@ async def start_workflow(
         "briefing_signals": None,
         "generated_messages_json": None,
         "interaction_summary": None,
+        "action_items": None,
     }
     redis = await get_redis()
     await redis.setex(f"agent:thread:{thread_id}:owner", THREAD_OWNER_TTL, str(current_ir["ir_id"]))
@@ -710,6 +711,7 @@ async def _start_workflow(
         "prompt_version": None, "skills_called": [], "error": None,
         "briefing_signals": None, "generated_messages_json": None,
         "interaction_summary": None,
+        "action_items": None,
     }
     state.update(state_overrides)
     redis = await get_redis()
