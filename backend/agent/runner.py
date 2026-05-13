@@ -53,6 +53,8 @@ async def run(task_type: str, initial_state: dict, thread_id: str) -> None:
             "ir_action": final_snap.get("ir_action"),
         })
     except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception("agent runner failed thread=%s", thread_id)
         await publish(thread_id, {"type": "error", "message": str(exc)})
 
 
@@ -85,4 +87,6 @@ async def resume(task_type: str, thread_id: str, ir_decision: dict) -> None:
             "ir_action": final_snap.get("ir_action"),
         })
     except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception("agent runner failed thread=%s", thread_id)
         await publish(thread_id, {"type": "error", "message": str(exc)})
