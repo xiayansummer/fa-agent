@@ -257,7 +257,95 @@ _CHAT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_my_upcoming_meetings",
+            "description": (
+                "列出当前 IR 即将开始/进行中的腾讯会议，每条含 meeting_id、subject、start_time、end_time。"
+                "当 IR 说「取消刚才那场会议」「取消会议」但你不知道 meeting_id 时，先调本工具拿列表，"
+                "再用最匹配的那场调 cancel_tencent_meeting。"
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_tencent_meeting",
+            "description": (
+                "取消已预订的腾讯会议（不可逆操作！）。\n"
+                "调用规则（重要）：\n"
+                "1. 用户首次说「取消那场会议」「删掉刚才的会议」等时，**不要直接调用**——先在回复里"
+                "复述会议主题/时间/会议号，问用户：「确认取消会议 XXX 吗？」\n"
+                "2. 等用户下一轮明确回复「确认」「是」「ok」「取消吧」等之后，再调用本工具。\n"
+                "3. 如果用户直接说「确认取消会议号 1234567890」明确给出 meeting_id 且语气坚定，可以一次性调用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "meeting_id": {"type": "string", "description": "腾讯会议 meeting_id（数字字符串，从 schedule 结果或 history 取）"},
+                    "reason_detail": {"type": "string", "description": "取消原因（可选，默认空字符串）"},
+                },
+                "required": ["meeting_id"],
+            },
+        },
+    },
 ]
+
+
+async def _get_tencent_client(ir_id: int, db: AsyncSession) -> TencentMeetingClient | None:
+    """取当前 IR 的腾讯 token 并实例化 client，缺失/解密失败返 None。"""
+    user = (await db.execute(select(IRUser).where(IRUser.id == ir_id))).scalar_one_or_none()
+    if not user or not user.tencent_meeting_token_encrypted:
+        return None
+    try:
+        token = crypto_service.decrypt(user.tencent_meeting_token_encrypted)
+    except Exception:
+        return None
+    return TencentMeetingClient(token=token)
+
+
+async def _exec_list_my_upcoming_meetings(ir_id: int, args: dict, db: AsyncSession) -> dict:
+    """列出 IR 当前即将开始/进行中的腾讯会议。"""
+    client = await _get_tencent_client(ir_id, db)
+    if client is None:
+        return {"error": "IR 未配置腾讯会议 token"}
+    try:
+        raw = await client.list_upcoming_meetings()
+    except TencentAuthError:
+        return {"error": "腾讯会议 token 已失效，请重新配置"}
+    except Exception as e:
+        return {"error": f"调用失败：{e}"}
+    items = []
+    for m in raw:
+        items.append({
+            "meeting_id": str(m.get("meeting_id") or ""),
+            "meeting_code": str(m.get("meeting_code") or m.get("meeting_id_str") or ""),
+            "subject": m.get("subject") or "",
+            "start_time": m.get("start_time") or "",
+            "end_time": m.get("end_time") or "",
+        })
+    return {"ok": True, "meetings": items, "count": len(items)}
+
+
+async def _exec_cancel_tencent_meeting(ir_id: int, args: dict, db: AsyncSession) -> dict:
+    """取消会议 tool。"""
+    mid = (args.get("meeting_id") or "").strip()
+    if not mid:
+        return {"error": "meeting_id 不能为空"}
+    client = await _get_tencent_client(ir_id, db)
+    if client is None:
+        return {"error": "IR 未配置腾讯会议 token"}
+    try:
+        await client.cancel_meeting(meeting_id=mid, reason_detail=args.get("reason_detail", "") or "")
+    except TencentAuthError:
+        return {"error": "腾讯会议 token 已失效，请重新配置"}
+    except TencentToolError as e:
+        return {"error": f"腾讯会议返回错误：{e}"}
+    except Exception as e:
+        return {"error": f"调用失败：{e}"}
+    return {"ok": True, "meeting_id": mid}
 
 
 async def _exec_schedule_tencent_meeting(ir_id: int, args: dict, db: AsyncSession) -> dict:
@@ -358,6 +446,10 @@ async def free_chat(
                 fargs = {}
             if fname == "schedule_tencent_meeting":
                 result = await _exec_schedule_tencent_meeting(ir_id, fargs, db)
+            elif fname == "cancel_tencent_meeting":
+                result = await _exec_cancel_tencent_meeting(ir_id, fargs, db)
+            elif fname == "list_my_upcoming_meetings":
+                result = await _exec_list_my_upcoming_meetings(ir_id, fargs, db)
             else:
                 result = {"error": f"未知工具：{fname}"}
             logger.info("chat tool_call ir=%s tool=%s args=%s result=%s",

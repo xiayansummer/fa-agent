@@ -125,3 +125,17 @@ class TencentMeetingClient:
         if password:
             args["password"] = password
         return await self._call("schedule_meeting", args)
+
+    async def cancel_meeting(
+        self,
+        meeting_id: str,
+        reason_code: int = 1,
+        reason_detail: str = "",
+    ) -> dict:
+        """取消一场已预订/进行中的会议。meeting_id 必填。
+        reason_code: 取消原因码，默认 1。reason_detail: 文字原因，可选。
+        """
+        args: dict = {"meeting_id": meeting_id, "reason_code": reason_code}
+        if reason_detail:
+            args["reason_detail"] = reason_detail
+        return await self._call("cancel_meeting", args)
