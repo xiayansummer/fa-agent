@@ -84,6 +84,7 @@ async def start_workflow(
         "skills_called": [],
         "error": None,
         "briefing_signals": None,
+        "generated_messages_json": None,
     }
     redis = await get_redis()
     await redis.setex(f"agent:thread:{thread_id}:owner", THREAD_OWNER_TTL, str(current_ir["ir_id"]))

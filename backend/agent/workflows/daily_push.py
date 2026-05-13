@@ -61,6 +61,40 @@ async def fetch_profiles_node(state: AgentState) -> dict:
     return {"investor_profiles": "\n".join(lines) or "（无相关信息）"}
 
 
+_EMOJIS = ["💬", "✨", "📨", "🌟", "🤝", "💡"]
+
+
+def _render_messages(raw: str, events: list[dict]) -> str:
+    """把 LLM 输出的 JSON 数组渲染成人类可读 markdown。
+    单条：直接显示 message 文本（前置 1 个 emoji）
+    多条：每段一个 emoji + 投资人名 + message
+    解析失败：原样返回 raw（save_node 仍能 fallback）
+    """
+    try:
+        items = json.loads(raw)
+        if not isinstance(items, list) or not items:
+            return raw
+    except (json.JSONDecodeError, TypeError):
+        return raw
+
+    # 投资人 id → 姓名（来自 events 上下文）
+    name_by_id: dict[int, str] = {e["investor_id"]: e.get("name", "") for e in (events or [])}
+
+    if len(items) == 1:
+        msg = (items[0].get("message") or "").strip()
+        return f"{_EMOJIS[0]} {msg}" if msg else raw
+
+    parts: list[str] = []
+    for i, item in enumerate(items):
+        emoji = _EMOJIS[i % len(_EMOJIS)]
+        inv_id = item.get("investor_id")
+        nm = name_by_id.get(inv_id, "")
+        msg = (item.get("message") or "").strip()
+        head = f"{emoji} 给 {nm} 的跟进" if nm else f"{emoji}"
+        parts.append(f"{head}\n\n{msg}")
+    return "\n\n---\n\n".join(parts)
+
+
 async def generate_node(state: AgentState) -> dict:
     events_str = json.dumps(state.get("events") or [], ensure_ascii=False, indent=2)
     events_str_escaped = events_str.replace("{", "{{").replace("}", "}}")
@@ -73,21 +107,45 @@ async def generate_node(state: AgentState) -> dict:
             "investor_profiles": profiles_escaped,
         },
     )
-    draft = await skill_registry.call("Claude.生成内容", context=context)
-    return {"draft": draft, "prompt_version": "v1", "skills_called": ["Claude.生成内容"]}
+    raw = await skill_registry.call("Claude.生成内容", context=context)
+    draft = _render_messages(raw, state.get("events") or [])
+    return {
+        "draft": draft,
+        "generated_messages_json": raw,   # 留给 save_node 按 investor_id 分发
+        "prompt_version": "v1",
+        "skills_called": ["Claude.生成内容"],
+    }
 
 
 async def save_node(state: AgentState) -> dict:
     final_content = state.get("final") or ""
+    events = state.get("events") or []
     async with AsyncSessionLocal() as db:
         if state.get("ir_action") != "rejected":
-            try:
-                messages = json.loads(final_content)
-            except (json.JSONDecodeError, TypeError):
-                logger.warning("daily_push save_node: failed to parse final as JSON, falling back to raw content. thread_id=%s", state.get("thread_id"))
+            # 优先用 review 前 LLM 输出的 raw JSON（保留 per-investor 分发能力），
+            # 用户编辑过 final 时 fallback 到把 final 当统一文案发给所有投资人。
+            messages = None
+            raw_json = state.get("generated_messages_json") or ""
+            if state.get("ir_action") == "approved" and raw_json:
+                try:
+                    parsed = json.loads(raw_json)
+                    if isinstance(parsed, list) and parsed:
+                        messages = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if messages is None:
+                try:
+                    parsed = json.loads(final_content)
+                    if isinstance(parsed, list) and parsed:
+                        messages = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if messages is None:
+                # 用户编辑过 final（markdown 文本），统一发给所有 events 投资人
+                logger.info("daily_push save_node: using user-edited final as unified content. thread_id=%s", state.get("thread_id"))
                 messages = [
                     {"investor_id": e["investor_id"], "message": final_content}
-                    for e in (state.get("events") or [])
+                    for e in events
                 ]
             for item in messages:
                 db.add(OutreachRecord(

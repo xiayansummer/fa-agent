@@ -37,6 +37,11 @@ class AgentState(TypedDict):
     # Orchestrator briefing intermediate state（JSON-encoded signals for synthesize node）
     briefing_signals: Optional[str]
 
+    # daily_push raw generated messages JSON (kept separate from draft so the
+    # review card shows a human-readable rendering while save_node can still
+    # dispatch by investor_id from the structured payload)
+    generated_messages_json: Optional[str]
+
     # Output
     draft: Optional[str]
     final: Optional[str]
