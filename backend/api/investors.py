@@ -15,6 +15,7 @@ from skills.qmingpian import (
     qmingpian_edit_person,
     qmingpian_export_person,
     qmingpian_add_familiar_person,
+    qmingpian_update_familiar_person,
     qmingpian_update_person_tags,
 )
 import logging
@@ -492,26 +493,27 @@ async def update_investor(
             warnings.append(f"基本信息未同步至企名片：{e}")
 
     # 2) 熟悉度回写企名片（需要 IR 配置了 qmingpian_username）
+    # 首次设置走 add，已有历史值走 update（语义更清晰，避免 add 重复造副作用）
     new_familiarity = updates.get("familiarity")
     if new_familiarity and new_familiarity != investor.familiarity:
-        # 取 IR 的 qmingpian_username
         ir_result = await db.execute(
             select(IRUser).where(IRUser.id == current_ir["ir_id"])
         )
         ir_user = ir_result.scalar_one_or_none()
         if ir_user and ir_user.qmingpian_username:
             try:
-                # 使用 updates 里的 name/agency 或 investor 现有值
                 name_for_qm = updates.get("name") or investor.name
                 agency_for_qm = updates.get("agency") or investor.agency or ""
-                await qmingpian_add_familiar_person(
+                sync_fn = (qmingpian_update_familiar_person
+                           if investor.familiarity
+                           else qmingpian_add_familiar_person)
+                await sync_fn(
                     name=name_for_qm,
                     agency=agency_for_qm,
                     user_name=ir_user.qmingpian_username,
                     level=new_familiarity,
                 )
             except Exception as e:
-                # 熟悉度回写失败不阻塞本地保存，只记录
                 logger.warning(
                     "qmingpian familiarity sync failed for investor %s: %s",
                     investor_id, e,

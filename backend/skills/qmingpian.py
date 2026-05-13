@@ -100,10 +100,8 @@ async def qmingpian_add_familiar_person(
     user_name: str,
     level: str,
 ) -> dict:
-    """设置某 IR 对某投资人的熟悉度。
-    - name/agency: 投资人姓名+机构
-    - user_name: IR 在企名片系统内的用户名（如 'Investarget'）
-    - level: 熟悉度等级（必须是企名片预配置的值，如"加过微信"/"见过面"/...）
+    """新建：某 IR 对某投资人的熟悉度（首次设置，无历史值）。
+    参数名是 `name`（不是 person_name），这是企名片 addFamiliarPerson 的格式。
     """
     form = _base({
         "name": name,
@@ -113,6 +111,29 @@ async def qmingpian_add_familiar_person(
     })
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{BASE_URL}/Person/addFamiliarPerson", data=form)
+    return _check(resp).get("data", {})
+
+
+@skill(registry=skill_registry, name="企名片.编辑投资人熟悉度",
+       version="1.0", timeout=10, retry=1)
+async def qmingpian_update_familiar_person(
+    name: str,
+    agency: str,
+    user_name: str,
+    level: str,
+) -> dict:
+    """编辑：某 IR 对某投资人的熟悉度（已有历史值，覆盖）。
+    注意：企名片 updateFamiliarPerson 的参数名是 `person_name`（不是 `name`），
+    我们对外保持 `name` 参数命名一致，内部映射。
+    """
+    form = _base({
+        "person_name": name,
+        "agency": agency,
+        "user_name": user_name,
+        "level": level,
+    })
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{BASE_URL}/Person/updateFamiliarPerson", data=form)
     return _check(resp).get("data", {})
 
 
