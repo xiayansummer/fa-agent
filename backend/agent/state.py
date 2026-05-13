@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TypedDict, Optional, Literal, Annotated
 import operator
 
-TaskType = Literal["meeting_minutes", "daily_push", "smart_list", "milestone_outreach"]
+TaskType = Literal["meeting_minutes", "daily_push", "smart_list", "milestone_outreach", "briefing"]
 IrAction = Literal["approved", "modified", "rejected"]
 
 
@@ -33,6 +33,9 @@ class AgentState(TypedDict):
     # Shared investor context (resolved from DB by first node in each workflow)
     investor_ids: Optional[list[int]]
     investor_profiles: Optional[str]
+
+    # Orchestrator briefing intermediate state（JSON-encoded signals for synthesize node）
+    briefing_signals: Optional[str]
 
     # Output
     draft: Optional[str]

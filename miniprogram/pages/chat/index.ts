@@ -2,6 +2,15 @@ import { api } from '../../services/api';
 import { wsManager, type WSEvent } from '../../services/ws';
 import { formatDate } from '../../utils/time';
 
+interface OrchAction {
+  label: string;
+  task_type: 'daily_push' | 'meeting_minutes' | 'milestone_outreach' | 'smart_list' | 'navigate';
+  investor_id?: number;
+  tencent_meeting_id?: string;
+  target?: 'drafts' | 'calendar' | 'investors';
+  milestone_type?: string;
+}
+
 interface Message {
   id: string;
   kind: 'user' | 'agent_card' | 'thinking' | 'agent_text';
@@ -14,6 +23,8 @@ interface Message {
   threadId?: string;  // 关联的 thread_id（用于 review）
   thinkingLabel?: string;
   inlineEditable?: boolean;  // 短内容才允许内联编辑
+  /** Orchestrator 简报卡片的原始 action 列表（actions 里 data-action=orch_N 时按 index 查这个） */
+  orchActions?: OrchAction[];
 }
 
 interface CalendarEvent {
@@ -52,7 +63,7 @@ Page<PageData, {}>({
   },
 
   onLoad() {
-    this._loadOrchestratorGreeting();
+    this._runOrchestratorBriefing();
   },
 
   onShow() {
@@ -70,40 +81,80 @@ Page<PageData, {}>({
     }
   },
 
-  async _loadOrchestratorGreeting() {
-    try {
-      const today = formatDate(new Date());
-      const data = await api.get<{ events: CalendarEvent[] }>(
-        `/api/calendar/daily?target_date=${today}`,
-        { silent: true }
-      );
-      const events = data.events || [];
-      const counts = { followup: 0, meeting: 0, milestone: 0, push: 0 };
-      events.forEach((e) => {
-        if (e.type in counts) counts[e.type as keyof typeof counts] += 1;
+  /** 启动 Orchestrator briefing workflow → WS 推回结构化 brief → 渲染早安卡。 */
+  _runOrchestratorBriefing() {
+    const placeholderId = `o-${Date.now()}`;
+    this._appendMessage({
+      id: placeholderId,
+      kind: 'thinking',
+      agent: 'orchestrator',
+      thinkingLabel: '正在分析今日信号',
+    });
+
+    api.post<{ thread_id: string }>('/api/agent/run', {
+      task_type: 'briefing',
+      target_date: formatDate(new Date()),
+    }, { silent: true }).then((res) => {
+      const threadId = res.thread_id;
+      wsManager.subscribe(threadId, (event: WSEvent) => {
+        if (event.type === 'done') {
+          let parsed: any = null;
+          try { parsed = JSON.parse(event.final || '{}'); } catch {}
+          if (!parsed || !parsed.greeting) {
+            this._replaceMessage(placeholderId, {
+              kind: 'agent_text',
+              agent: 'orchestrator',
+              body: '早上好，可以问我任何问题',
+            });
+            return;
+          }
+          const lines: string[] = [parsed.greeting];
+          for (const h of (parsed.highlights || []).slice(0, 2)) {
+            lines.push(`• ${h}`);
+          }
+          const orchActions: OrchAction[] = (parsed.suggested_actions || []).slice(0, 3);
+          this._replaceMessage(placeholderId, {
+            kind: 'agent_card',
+            agent: 'orchestrator',
+            title: 'Orchestrator · 统筹',
+            body: lines.join('\n\n'),
+            actions: orchActions.map((a, i) => ({
+              action: `orch_${i}`,
+              label: a.label,
+              primary: i === 0,
+            })),
+            orchActions,
+          });
+        } else if (event.type === 'error' || event.type === 'snapshot' && event.status === 'error') {
+          this._replaceMessage(placeholderId, {
+            kind: 'agent_text',
+            agent: 'orchestrator',
+            body: '早上好，可以问我任何问题',
+          });
+        } else if (event.type === 'snapshot' && event.status === 'done' && event.final) {
+          // 重连 fallback：直接走 done 分支逻辑
+          let parsed: any = null;
+          try { parsed = JSON.parse(event.final); } catch {}
+          if (parsed?.greeting) {
+            const orchActions: OrchAction[] = (parsed.suggested_actions || []).slice(0, 3);
+            this._replaceMessage(placeholderId, {
+              kind: 'agent_card',
+              agent: 'orchestrator',
+              title: 'Orchestrator · 统筹',
+              body: [parsed.greeting, ...(parsed.highlights || []).slice(0, 2).map((h: string) => `• ${h}`)].join('\n\n'),
+              actions: orchActions.map((a, i) => ({ action: `orch_${i}`, label: a.label, primary: i === 0 })),
+              orchActions,
+            });
+          }
+        }
       });
-
-      const summaryParts: string[] = [];
-      if (counts.followup) summaryParts.push(`${counts.followup} 个跟进`);
-      if (counts.meeting) summaryParts.push(`${counts.meeting} 场会议`);
-      if (counts.milestone) summaryParts.push(`${counts.milestone} 个里程碑`);
-      if (counts.push) summaryParts.push(`${counts.push} 条推送`);
-
-      const body = summaryParts.length > 0
-        ? `早上好，今日有 ${summaryParts.join('、')}`
-        : '早上好，今天没有 Agent 安排的任务，可以问我任何问题';
-
-      this._appendMessage({
-        id: `o-${Date.now()}`,
-        kind: 'agent_card',
+    }).catch(() => {
+      this._replaceMessage(placeholderId, {
+        kind: 'agent_text',
         agent: 'orchestrator',
-        title: 'Orchestrator · 统筹',
-        body,
-        actions: events.length > 0 ? [{ action: 'view_calendar', label: '查看日程', primary: true }] : [],
+        body: '早上好，可以问我任何问题',
       });
-    } catch (e) {
-      // silent
-    }
+    });
   },
 
   _appendMessage(msg: Message) {
@@ -167,6 +218,43 @@ Page<PageData, {}>({
         agent: 'content',
         body: '回复失败，请重试',
       });
+    }
+  },
+
+  /** 处理 Orchestrator 建议按钮：根据 task_type 跳页 / 启 workflow。 */
+  async _dispatchOrchAction(orch: OrchAction) {
+    if (orch.task_type === 'navigate') {
+      if (orch.target === 'drafts') {
+        wx.navigateTo({ url: '/pages/drafts/index' });
+      } else if (orch.target === 'calendar') {
+        wx.switchTab({ url: '/pages/calendar/index' });
+      } else if (orch.target === 'investors') {
+        wx.switchTab({ url: '/pages/investors/index' });
+      }
+      return;
+    }
+    if (orch.task_type === 'meeting_minutes' && orch.tencent_meeting_id) {
+      wx.navigateTo({
+        url: `/pages/meeting-prepare/index?meeting_id=${encodeURIComponent(orch.tencent_meeting_id)}`,
+      });
+      return;
+    }
+    // daily_push / milestone_outreach / smart_list → 启 workflow 并订阅
+    const body: any = { task_type: orch.task_type };
+    if (orch.investor_id) {
+      if (orch.task_type === 'milestone_outreach') {
+        body.investor_id = orch.investor_id;
+        body.milestone_type = orch.milestone_type || 'birthday';
+      } else {
+        body.investor_ids = [orch.investor_id];
+      }
+    }
+    body.target_date = formatDate(new Date());
+    try {
+      const res = await api.post<{ thread_id: string }>('/api/agent/run', body);
+      this._subscribeToThread(res.thread_id);
+    } catch (err) {
+      wx.showToast({ title: '启动失败', icon: 'none' });
     }
   },
 
@@ -279,6 +367,18 @@ Page<PageData, {}>({
 
     if (action === 'view_calendar') {
       wx.switchTab({ url: '/pages/calendar/index' });
+      return;
+    }
+
+    // Orchestrator suggested_actions：action 编码为 orch_<index>
+    if (action.startsWith('orch_')) {
+      const idx = parseInt(action.slice(5));
+      const msg = [...this.data.messages].reverse().find(
+        (m) => m.agent === 'orchestrator' && m.orchActions && m.orchActions.length > idx
+      );
+      const orch = msg?.orchActions?.[idx];
+      if (!orch) return;
+      await this._dispatchOrchAction(orch);
       return;
     }
 
