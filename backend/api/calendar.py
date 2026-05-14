@@ -12,6 +12,7 @@ from database import get_db
 from models.investors import Investor
 from models.interaction_logs import InteractionLog
 from models.ir_users import IRUser
+from models.calendar_dismissals import CalendarDismissal
 from auth.jwt import get_current_ir
 from redis_client import get_redis
 from services import crypto_service
@@ -30,6 +31,7 @@ class CalendarEvent(BaseModel):
     action_label: str
     action_prefill: str
     tencent_meeting_id: Optional[str] = None  # 仅 type=meeting 时有值
+    event_key: str = ""                       # 用于 IR 主动 dismiss 时定位事件
 
 class DailyCalendarOut(BaseModel):
     date: str
@@ -118,78 +120,89 @@ async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
 def _compute_events_for_day(
     investors,
     target_date: date,
-    action_followups: Optional[dict[int, list[tuple[str, str]]]] = None,
+    action_followups: Optional[dict[int, list[tuple[int, str, str]]]] = None,
+    dismissed_keys: Optional[set[str]] = None,
 ) -> list[CalendarEvent]:
     """Return all CalendarEvent objects for a given date.
-    action_followups: investor_id → list of (action_title, action_summary) for that date,
-    coming from interaction_logs.next_followup_at hits (会议纪要里抽出的 action items).
+    action_followups: investor_id → list of (log_id, action_title, action_summary).
+    dismissed_keys: 当日 IR 已经 dismiss 的 event_key 集合，命中即跳过。
     """
     events: list[CalendarEvent] = []
     inv_by_id = {inv.id: inv for inv in investors}
+    dismissed = dismissed_keys or set()
 
-    # 1) Action-item 触发的 followup（更精准，优先于"14 天未跟进"）
     if action_followups:
         for inv_id, actions in action_followups.items():
             inv = inv_by_id.get(inv_id)
             if not inv:
                 continue
-            for title, summary in actions:
+            for log_id, title, summary in actions:
+                key = f"action:{log_id}"
+                if key in dismissed:
+                    continue
                 events.append(CalendarEvent(
                     time="09:00",
                     type="followup",
                     title=title,
-                    description=summary or f"来自近期会议纪要的待办",
+                    description=summary or "来自近期会议纪要的待办",
                     investor_id=inv.id,
                     investor_name=inv.name,
                     action_label="执行",
                     action_prefill=f"帮我跟进{inv.name}：{title}",
+                    event_key=key,
                 ))
 
     for inv in investors:
-        # Followup: last interaction >= 14 days ago（兜底定期提醒，不和 action_followup 重复）
         if inv.last_interaction_at:
             days_since = (target_date - inv.last_interaction_at.date()).days
             if days_since >= 14 and not (action_followups and inv.id in action_followups):
+                key = f"followup:{inv.id}"
+                if key not in dismissed:
+                    events.append(CalendarEvent(
+                        time="09:00",
+                        type="followup",
+                        title=f"跟进{inv.name}（{inv.agency or ''}）",
+                        description=f"上次互动 {days_since} 天前",
+                        investor_id=inv.id,
+                        investor_name=inv.name,
+                        action_label="执行",
+                        action_prefill=f"帮我跟进{inv.name}，生成一条行业推送",
+                        event_key=key,
+                    ))
+
+        if inv.birthday and inv.birthday.month == target_date.month and inv.birthday.day == target_date.day:
+            key = f"birthday:{inv.id}"
+            if key not in dismissed:
                 events.append(CalendarEvent(
-                    time="09:00",
-                    type="followup",
-                    title=f"跟进{inv.name}（{inv.agency or ''}）",
-                    description=f"上次互动 {days_since} 天前",
+                    time="10:00",
+                    type="milestone",
+                    title=f"{inv.name} 生日",
+                    description=f"{inv.agency or ''} · {inv.position or ''}",
                     investor_id=inv.id,
                     investor_name=inv.name,
-                    action_label="执行",
-                    action_prefill=f"帮我跟进{inv.name}，生成一条行业推送",
+                    action_label="审核祝贺",
+                    action_prefill=f"为{inv.name}生成生日祝贺消息",
+                    event_key=key,
                 ))
 
-        # Birthday milestone
-        if inv.birthday and inv.birthday.month == target_date.month and inv.birthday.day == target_date.day:
-            events.append(CalendarEvent(
-                time="10:00",
-                type="milestone",
-                title=f"{inv.name} 生日",
-                description=f"{inv.agency or ''} · {inv.position or ''}",
-                investor_id=inv.id,
-                investor_name=inv.name,
-                action_label="审核祝贺",
-                action_prefill=f"为{inv.name}生成生日祝贺消息",
-            ))
-
-        # Join agency anniversary
         if inv.join_agency_date:
             years = target_date.year - inv.join_agency_date.year
             if (years > 0
                     and inv.join_agency_date.month == target_date.month
                     and inv.join_agency_date.day == target_date.day):
-                events.append(CalendarEvent(
-                    time="10:30",
-                    type="milestone",
-                    title=f"{inv.name} 加入{inv.agency or ''} {years} 周年",
-                    description="里程碑节点，建议发送祝贺",
-                    investor_id=inv.id,
-                    investor_name=inv.name,
-                    action_label="审核祝贺",
-                    action_prefill=f"为{inv.name}生成加入{inv.agency or ''}{years}周年祝贺消息",
-                ))
+                key = f"anniversary:{inv.id}:{years}"
+                if key not in dismissed:
+                    events.append(CalendarEvent(
+                        time="10:30",
+                        type="milestone",
+                        title=f"{inv.name} 加入{inv.agency or ''} {years} 周年",
+                        description="里程碑节点，建议发送祝贺",
+                        investor_id=inv.id,
+                        investor_name=inv.name,
+                        action_label="审核祝贺",
+                        action_prefill=f"为{inv.name}生成加入{inv.agency or ''}{years}周年祝贺消息",
+                        event_key=key,
+                    ))
 
     events.sort(key=lambda e: e.time)
     return events
@@ -219,18 +232,34 @@ async def get_daily_calendar(
             InteractionLog.ir_id == ir_id,
         )
     )).scalars().all()
-    action_followups: dict[int, list[tuple[str, str]]] = {}
+    action_followups: dict[int, list[tuple[int, str, str]]] = {}
     for log in fl_rows:
         title = f"跟进 action：{(log.summary or '')[:30]}"
-        action_followups.setdefault(log.investor_id, []).append((title, log.summary or ""))
+        action_followups.setdefault(log.investor_id, []).append((log.id, title, log.summary or ""))
 
-    events = _compute_events_for_day(investors, cal_date, action_followups=action_followups)
+    # 当日 IR 主动 dismiss 的 event_key 集合
+    dism_rows = (await db.execute(
+        select(CalendarDismissal.event_key).where(
+            CalendarDismissal.ir_id == ir_id,
+            CalendarDismissal.event_date == cal_date,
+        )
+    )).scalars().all()
+    dismissed_keys = set(dism_rows)
+
+    events = _compute_events_for_day(
+        investors, cal_date,
+        action_followups=action_followups,
+        dismissed_keys=dismissed_keys,
+    )
 
     # 腾讯会议：当日所有会议合并进事件流
     meetings = await _load_tencent_meetings(db, ir_id)
     cal_date_str = str(cal_date)
     for m in meetings:
         if m["date"] != cal_date_str:
+            continue
+        key = f"meeting:{m['meeting_id']}"
+        if key in dismissed_keys:
             continue
         events.append(CalendarEvent(
             time=m["time"],
@@ -240,6 +269,7 @@ async def get_daily_calendar(
             action_label="纪要准备",
             action_prefill=f"为「{m['subject']}」生成会议纪要",
             tencent_meeting_id=m["meeting_id"],
+            event_key=key,
         ))
     events.sort(key=lambda e: e.time)
 
@@ -281,29 +311,81 @@ async def get_month_calendar(
             InteractionLog.ir_id == current_ir["ir_id"],
         )
     )).scalars().all()
-    followups_by_date: dict[str, dict[int, list[tuple[str, str]]]] = {}
+    followups_by_date: dict[str, dict[int, list[tuple[int, str, str]]]] = {}
     for log in fl_rows:
         ds = log.next_followup_at.date().isoformat()
         title = f"跟进 action：{(log.summary or '')[:30]}"
         followups_by_date.setdefault(ds, {}).setdefault(log.investor_id, []).append(
-            (title, log.summary or "")
+            (log.id, title, log.summary or "")
         )
+
+    # 整月 dismiss 一次性查（按日分组）
+    dism_rows = (await db.execute(
+        select(CalendarDismissal.event_date, CalendarDismissal.event_key).where(
+            CalendarDismissal.ir_id == current_ir["ir_id"],
+            CalendarDismissal.event_date >= date(year, month_num, 1),
+            CalendarDismissal.event_date <= date(year, month_num, last_day_num),
+        )
+    )).all()
+    dismissed_by_date: dict[str, set[str]] = {}
+    for d, k in dism_rows:
+        dismissed_by_date.setdefault(d.isoformat(), set()).add(k)
+
+    # 当月 meeting key 按日聚合，便于 month dot 计算时也过滤掉已 dismiss 的会议
+    meetings_by_date: dict[str, list[dict]] = {}
+    for m in meetings:
+        meetings_by_date.setdefault(m["date"], []).append(m)
 
     days: dict[str, list[str]] = {}
     for day_num in range(1, last_day_num + 1):
         target_date = date(year, month_num, day_num)
         date_str = str(target_date)
+        dismissed_today = dismissed_by_date.get(date_str, set())
         events = _compute_events_for_day(
             investors, target_date,
             action_followups=followups_by_date.get(date_str),
+            dismissed_keys=dismissed_today,
         )
-        # Collect unique event types, preserving first-occurrence order
         seen: dict[str, None] = {}
         for e in events:
             seen[e.type] = None
-        if date_str in meeting_dates:
+        # 同步过滤 meeting：当日是否有「未被 dismiss」的会议
+        if any(f"meeting:{m['meeting_id']}" not in dismissed_today
+               for m in meetings_by_date.get(date_str, [])):
             seen["meeting"] = None
         if seen:
             days[date_str] = list(seen.keys())
 
     return MonthCalendarOut(month=month, days=days)
+
+
+class DismissRequest(BaseModel):
+    event_key: str
+    event_date: str  # YYYY-MM-DD
+
+
+@router.post("/dismiss")
+async def dismiss_event(
+    body: DismissRequest,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """IR 把某天某条事件从日历视图删掉。仅影响视图，不修改源数据
+    （腾讯会议不会真取消、interaction_log 不会修改）。再次出现需要 IR 主动 chat 重新创建。"""
+    try:
+        d = date.fromisoformat(body.event_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid event_date: {body.event_date}")
+    key = (body.event_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=422, detail="event_key required")
+    row = CalendarDismissal(
+        ir_id=current_ir["ir_id"], event_key=key, event_date=d,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # unique 冲突 = 已 dismiss 过，视为成功
+    return {"ok": True, "event_key": key, "event_date": body.event_date}

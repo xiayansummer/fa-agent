@@ -10,6 +10,7 @@ interface CalendarEvent {
   action_label: string;
   action_prefill: string;
   tencent_meeting_id?: string;
+  event_key?: string;
 }
 
 interface PageData {
@@ -67,7 +68,6 @@ Page<PageData, {}>({
     const event = e.currentTarget.dataset.event as CalendarEvent;
 
     if (event.type === 'meeting') {
-      // 跳会议纪要准备页（F8 实现）
       const q = event.tencent_meeting_id
         ? `meeting_id=${encodeURIComponent(event.tencent_meeting_id)}`
         : `investor_id=${event.investor_id}`;
@@ -75,8 +75,6 @@ Page<PageData, {}>({
       return;
     }
 
-    // followup / milestone / push 都通过对话 tab 触发 workflow
-    // 简化：把 action_prefill 当 chat 输入，让 chat 页处理
     try {
       const taskType = event.type === 'milestone' ? 'milestone_outreach' : 'daily_push';
       const body: any = {
@@ -85,17 +83,39 @@ Page<PageData, {}>({
         target_date: this.data.date,
       };
       if (event.type === 'milestone') {
-        // 这里简化处理，真实需要 milestone_type 字段，先按 followup
         delete body.target_date;
         body.investor_id = event.investor_id;
-        body.milestone_type = 'birthday'; // F8 之外暂用默认
+        body.milestone_type = 'birthday';
         body.ir_name = 'IR';
         delete body.investor_ids;
       }
       const res = await api.post<{ thread_id: string }>('/api/agent/run', body);
       wx.switchTab({ url: '/pages/chat/index' });
-      // 临时存 thread_id，让 chat 页 onShow 时取
       wx.setStorageSync('chat:incoming_thread', res.thread_id);
     } catch (e) {/* toast handled */}
+  },
+
+  async onDismiss(e: WechatMiniprogram.TouchEvent) {
+    const event = e.currentTarget.dataset.event as CalendarEvent;
+    if (!event.event_key) {
+      wx.showToast({ title: '此事件不可删除', icon: 'none' });
+      return;
+    }
+    const { confirm } = await wx.showModal({
+      title: '从日历删除',
+      content: `「${event.title}」这条提醒将从你的日历上移除（不影响实际会议/记录）`,
+      confirmText: '删除',
+      confirmColor: '#EF4444',
+    });
+    if (!confirm) return;
+    try {
+      await api.post('/api/calendar/dismiss', {
+        event_key: event.event_key,
+        event_date: this.data.date,
+      });
+      const events = this.data.events.filter(it => it.event_key !== event.event_key);
+      this.setData({ events });
+      wx.showToast({ title: '已删除', icon: 'success' });
+    } catch (_e) {/* toast handled */}
   },
 });

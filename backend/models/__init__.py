@@ -5,6 +5,7 @@ from models.interaction_logs import InteractionLog
 from models.outreach_records import OutreachRecord
 from models.agent_traces import AgentTrace
 from models.agent_feedback import AgentFeedback
+from models.calendar_dismissals import CalendarDismissal
 
 __all__ = [
     "Investor",
@@ -13,4 +14,5 @@ __all__ = [
     "OutreachRecord",
     "AgentTrace",
     "AgentFeedback",
+    "CalendarDismissal",
 ]

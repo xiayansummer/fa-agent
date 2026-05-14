@@ -8,7 +8,8 @@
     今天没有 Agent 安排的任务
   </view>
 
-  <view class="event-card" wx:for="{{events}}" wx:key="title">
+  <view class="event-card" wx:for="{{events}}" wx:key="event_key">
+    <view class="event-close" wx:if="{{item.event_key}}" catchtap="onDismiss" data-event="{{item}}">×</view>
     <view class="event-head">
       <view class="time">{{item.time}}</view>
       <view class="tag" style="background: {{item.typeColor}}">{{item.typeLabel}}</view>
