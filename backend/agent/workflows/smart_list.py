@@ -5,7 +5,7 @@ from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
-from agent.runner import _checkpointer, register_graph
+from agent.runner import register_builder
 from database import AsyncSessionLocal
 from harness.skill_registry import skill_registry
 from harness.prompt_registry import registry as prompt_registry
@@ -117,5 +117,7 @@ builder.add_edge("format_list", "review")
 builder.add_edge("review", "save")
 builder.add_edge("save", END)
 
-smart_list_graph = builder.compile(checkpointer=_checkpointer)
-register_graph("smart_list", smart_list_graph)
+register_builder("smart_list", builder)
+
+from langgraph.checkpoint.memory import MemorySaver as _MemorySaver
+smart_list_graph = builder.compile(checkpointer=_MemorySaver())

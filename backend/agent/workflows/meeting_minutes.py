@@ -8,7 +8,7 @@ from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
 from agent.nodes.fetch_tencent_minutes import fetch_tencent_minutes_node
-from agent.runner import _checkpointer, register_graph
+from agent.runner import register_builder
 from database import AsyncSessionLocal
 from harness.skill_registry import skill_registry
 from harness.prompt_registry import registry as prompt_registry
@@ -280,5 +280,7 @@ builder.add_edge("extract_action_items", "save")
 builder.add_edge("save", "dispatch_outreach")
 builder.add_edge("save", END)
 
-meeting_minutes_graph = builder.compile(checkpointer=_checkpointer)
-register_graph("meeting_minutes", meeting_minutes_graph)
+register_builder("meeting_minutes", builder)
+
+from langgraph.checkpoint.memory import MemorySaver as _MemorySaver
+meeting_minutes_graph = builder.compile(checkpointer=_MemorySaver())

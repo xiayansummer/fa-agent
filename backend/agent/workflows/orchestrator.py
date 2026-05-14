@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select, func
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
-from agent.runner import _checkpointer, register_graph
+from agent.runner import register_builder
 from database import AsyncSessionLocal
 from harness.skill_registry import skill_registry
 from harness.prompt_registry import registry as prompt_registry
@@ -166,5 +166,4 @@ builder.add_edge(START, "fetch_signals")
 builder.add_edge("fetch_signals", "synthesize_briefing")
 builder.add_edge("synthesize_briefing", END)
 
-orchestrator_graph = builder.compile(checkpointer=_checkpointer)
-register_graph("briefing", orchestrator_graph)
+register_builder("briefing", builder)

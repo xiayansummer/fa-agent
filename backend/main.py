@@ -19,7 +19,14 @@ import skills.asr_skill      # noqa: F401
 # Trigger workflow graph registration
 import agent  # noqa: F401
 
+from agent.runner import setup_checkpointer
+
 app = FastAPI(title="FA Agent API", version="1.0.0")
+
+
+@app.on_event("startup")
+async def _init_checkpointer() -> None:
+    await setup_checkpointer()
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(investors_router, prefix="/api/investors", tags=["investors"])

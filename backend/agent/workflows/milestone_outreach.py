@@ -4,7 +4,7 @@ from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
-from agent.runner import _checkpointer, register_graph
+from agent.runner import register_builder
 from database import AsyncSessionLocal
 from harness.skill_registry import skill_registry
 from harness.prompt_registry import registry as prompt_registry
@@ -92,5 +92,8 @@ builder.add_edge("generate", "review")
 builder.add_edge("review", "save")
 builder.add_edge("save", END)
 
-milestone_outreach_graph = builder.compile(checkpointer=_checkpointer)
-register_graph("milestone_outreach", milestone_outreach_graph)
+register_builder("milestone_outreach", builder)
+
+# 测试用编译（内存）。生产由 runner.setup_checkpointer() 重新用 AsyncRedisSaver 编译。
+from langgraph.checkpoint.memory import MemorySaver as _MemorySaver
+milestone_outreach_graph = builder.compile(checkpointer=_MemorySaver())

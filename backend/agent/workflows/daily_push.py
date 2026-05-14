@@ -6,7 +6,7 @@ from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
 from agent.nodes.review_node import review_node
-from agent.runner import _checkpointer, register_graph
+from agent.runner import register_builder
 from database import AsyncSessionLocal
 from harness.skill_registry import skill_registry
 from harness.prompt_registry import registry as prompt_registry
@@ -184,5 +184,7 @@ builder.add_edge("generate", "review")
 builder.add_edge("review", "save")
 builder.add_edge("save", END)
 
-daily_push_graph = builder.compile(checkpointer=_checkpointer)
-register_graph("daily_push", daily_push_graph)
+register_builder("daily_push", builder)
+
+from langgraph.checkpoint.memory import MemorySaver as _MemorySaver
+daily_push_graph = builder.compile(checkpointer=_MemorySaver())
