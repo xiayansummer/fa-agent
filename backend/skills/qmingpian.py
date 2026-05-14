@@ -294,14 +294,16 @@ async def qmingpian_add_person_summary(
 
 
 @skill(registry=skill_registry, name="企名片.添加机构纪要",
-       version="1.0", timeout=10, retry=1)
+       version="1.1", timeout=10, retry=1)
 async def qmingpian_add_agency_summary(
     agency: str,
     summary: str,
     user_name: str,
 ) -> dict:
+    """企名片 addAgencySummary：注意机构名字段实际叫 `name`（不是 agency），
+    跟 addPersonSummary 不一致。"""
     form = _base({
-        "agency": agency,
+        "name": agency,
         "summary": summary,
         "user_name": user_name,
     })
