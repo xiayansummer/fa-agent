@@ -139,15 +139,22 @@ Page<PageData, {}>({
 
       // 异步拉企名片纪要 + 历史推荐 + 名片 + 联系方式（不阻塞主渲染）
       if (investor?.name) {
-        this._loadQmingpian(investor.name, (investor as any).agency || '');
+        this._loadQmingpian(
+          investor.name,
+          (investor as any).agency || '',
+          (investor as any).qmingpian_person_id || '',
+        );
       }
     } finally {
       this.setData({ loading: false });
     }
   },
 
-  async _loadQmingpian(personName: string, agency: string) {
+  async _loadQmingpian(personName: string, agency: string, personId: string) {
     // 并发两个端点：by-name（纪要/历史/联系方式）+ searchhit（名片列表/职务）
+    let byNameQuery = `person_name=${encodeURIComponent(personName)}`;
+    if (personId) byNameQuery += `&person_id=${encodeURIComponent(personId)}`;
+    if (agency) byNameQuery += `&expected_agency=${encodeURIComponent(agency)}`;
     const byNamePromise = api.get<{
       agency?: string;
       phone?: string[];
@@ -156,8 +163,7 @@ Page<PageData, {}>({
       summaries?: QmingpianSummary[];
       history?: QmingpianHistory[];
       familiar_persons?: QmingpianFamiliarPerson[];
-    }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}` +
-       (agency ? `&expected_agency=${encodeURIComponent(agency)}` : ''),
+    }>(`/api/investors/qmingpian/by-name?${byNameQuery}`,
        { silent: true }).catch(() => null);
 
     const searchhitPromise = api.get<{

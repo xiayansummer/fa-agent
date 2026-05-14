@@ -416,19 +416,26 @@ async def upload_business_card(
 @router.get("/qmingpian/by-name", response_model=EnrichedQmingpianOut)
 async def enrich_from_qmingpian(
     person_name: str = Query(..., min_length=1, description="投资人姓名"),
-    expected_agency: Optional[str] = Query(None, description="本地侧机构名，用于同名消歧"),
+    expected_agency: Optional[str] = Query(None, description="本地机构名，用于同名消歧（无 person_id 时 fallback）"),
+    person_id: Optional[str] = Query(None, description="企名片 person_id（推荐）— 精准定位避免同名"),
     _: dict = Depends(get_current_ir),
 ):
-    """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业/纪要/历史推荐）。
-    查不到时返回 200 + 空字段；同名多人时按 expected_agency fuzzy 选对的那一行；
-    如果选不出对的（agency 完全不匹配）→ 返回空字段，不污染当前投资人详情。"""
+    """从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业/纪要/历史推荐/熟悉人）。
+
+    优先 person_id（精准）；只传 person_name 时按 expected_agency fuzzy 选行。
+    选不出对的或调用失败 → 200 + 空字段，避免污染详情。"""
     try:
-        data = await qmingpian_export_person(person_name, expected_agency=expected_agency or "")
+        data = await qmingpian_export_person(
+            person_name=person_name,
+            expected_agency=expected_agency or "",
+            person_id=person_id or "",
+        )
     except Exception:
         return EnrichedQmingpianOut()
     if not data or not isinstance(data, dict):
         return EnrichedQmingpianOut()
-    if expected_agency:
+    # 仅在没传 person_id 而走 name fuzzy 时再校验 agency；person_id 命中即权威
+    if not person_id and expected_agency:
         from agent.orchestrator_tools.direct import _same_agency
         if not _same_agency(data.get("agency") or "", expected_agency):
             return EnrichedQmingpianOut()

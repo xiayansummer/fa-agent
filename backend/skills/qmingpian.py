@@ -430,27 +430,36 @@ def _same_agency_loose(a: str, b: str) -> bool:
 
 
 @skill(registry=skill_registry, name="企名片.导出投资人详情",
-       version="1.1", timeout=15, retry=1)
-async def qmingpian_export_person(person_name: str, expected_agency: str = "") -> dict:
-    """通过姓名导出投资人详情（xlsx）。
+       version="1.2", timeout=15, retry=1)
+async def qmingpian_export_person(person_name: str = "", expected_agency: str = "",
+                                  person_id: str = "") -> dict:
+    """导出投资人详情（xlsx）。
 
-    同名场景：企名片返回的 "投资人详情" sheet 会有多行（每行一个同名人），
-    其他 sheet（纪要/历史/熟悉人）在同名场景下**不会被返回**（API 行为）。
-    expected_agency 用于在多行场景下精确选中目标条；不传则取第一条。
-
-    单一记录场景：xlsx 含 4 个 sheet，正常解析。
+    优先使用 **person_id** 精准定位（推荐）—— 避免同名歧义，返回的 xlsx 总是单条记录的
+    完整 sheet 集（详情 + 纪要 + 历史 + 熟悉人）。
+    fallback：仅 person_name → 同名场景下"投资人详情"会有多行，按 expected_agency
+    fuzzy 选；其他 sheet 可能被企名片 API 省略。
 
     返回：
-    - agency / phone / email / industry —— 来自"投资人详情"sheet 的选中行
-    - summaries / history / familiar_persons —— 来自对应 sheet（同名时为空）
+    - agency / phone / email / industry  —— 来自"投资人详情"
+    - summaries / history / familiar_persons —— 对应 sheet
     """
     import io
     from openpyxl import load_workbook
 
+    if not person_id and not person_name:
+        raise ValueError("person_id 和 person_name 至少给一个")
+
+    payload: dict = {}
+    if person_id:
+        payload["person_id"] = person_id
+    if person_name:
+        payload["person_name"] = person_name
+
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             f"{BASE_URL}/Export/exportPersonOpen",
-            data=_base({"person_name": person_name}),
+            data=_base(payload),
         )
 
     ct = resp.headers.get("content-type", "")
