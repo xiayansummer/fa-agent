@@ -504,6 +504,62 @@ async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
 
 
+_AGENCY_PREFIXES = sorted(
+    ["珠海", "上海", "北京", "深圳", "广州", "杭州", "成都", "南京", "苏州",
+     "天津", "重庆", "宁波", "厦门", "西安", "武汉", "长沙", "香港", "澳门",
+     "广东省", "浙江省", "江苏省", "山东省", "福建省"],
+    key=len, reverse=True,
+)
+
+
+def _agency_brand(s: str) -> str:
+    """提取机构品牌词（前 2 个汉字，去掉常见地名前缀）。"""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    for pre in _AGENCY_PREFIXES:
+        if s.startswith(pre):
+            s = s[len(pre):]
+            break
+    return s[:2]
+
+
+def _same_agency(a: str, b: str) -> bool:
+    """机构名 fuzzy 比较：处理"鲸芯投资" vs "珠海鲸芯创业投资管理有限公司"。"""
+    a = (a or "").strip()
+    b = (b or "").strip()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) >= 2 and a in b:
+        return True
+    if len(b) >= 2 and b in a:
+        return True
+    ba, bb = _agency_brand(a), _agency_brand(b)
+    return bool(ba) and ba == bb
+
+
+async def _supplement_investor_fields(
+    ctx: ToolCtx, inv: Investor,
+    phone: str, email: str, wechat: str, position: str, agency: str,
+) -> None:
+    """对已存在投资人补全空字段，不覆盖已有值。"""
+    changed = False
+    if phone and not (inv.phone or []):
+        inv.phone = [phone]; changed = True
+    if email and not (inv.email or []):
+        inv.email = [email]; changed = True
+    if wechat and not (inv.wechat or []):
+        inv.wechat = [wechat]; changed = True
+    if position and not inv.position:
+        inv.position = position; changed = True
+    if agency and not inv.agency:
+        inv.agency = agency; changed = True
+    if changed:
+        await ctx.db.commit()
+
+
 async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
     file_url = (args.get("file_url") or "").strip()
     name = (args.get("name") or "").strip()
@@ -519,57 +575,97 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
     if not ir_row or not ir_row.qmingpian_username:
         return {"error": "当前 IR 未配置企名片用户名"}
 
-    # 1) 本地查
-    q = select(Investor).where(Investor.is_active == True, Investor.name == name)
-    if agency:
-        q = q.where(Investor.agency == agency)
-    candidates = (await ctx.db.execute(q.limit(3))).scalars().all()
-    if len(candidates) > 1:
-        return {"error": f"本地有 {len(candidates)} 个同名「{name}」候选，请用 search_investor 进一步指定 agency"}
-
-    inv: Optional[Investor] = candidates[0] if candidates else None
-    person_id: Optional[str] = inv.qmingpian_person_id if inv else None
+    person_id: Optional[str] = None
+    inv: Optional[Investor] = None
     created_local = False
     created_qmp = False
 
-    # 2) 没本地 → 企名片 search
-    if inv is None:
+    # 阶段 1：企名片是权威源，先搜
+    try:
+        qmp_hits = await qmingpian_search_person(name)
+    except Exception as e:
+        return {"error": f"企名片搜索失败：{e}"}
+
+    # 阶段 2：在企名片候选中挑出最匹配的一条
+    qmp_match = None
+    for h in qmp_hits:
+        if (h.get("name") or "") != name:
+            continue
+        if agency and _same_agency(h.get("agency") or "", agency):
+            qmp_match = h
+            break
+    if qmp_match is None:
+        # name 完全匹配的第一条（没传 agency 时，或所有 agency 都不像）
+        qmp_match = next((h for h in qmp_hits if (h.get("name") or "") == name), None)
+
+    if qmp_match:
+        person_id = qmp_match.get("person_id")
+    else:
+        # 阶段 3：企名片没有 → 新建
         try:
-            hits = await qmingpian_search_person(name)
+            await qmingpian_add_person(
+                name=name, agency=agency,
+                phone=phone, wechat=wechat, email=email,
+                position=position,
+            )
+            created_qmp = True
+            # 重搜拿 person_id
+            hits2 = await qmingpian_search_person(name)
+            qmp_match = None
+            for h in hits2:
+                if (h.get("name") or "") != name:
+                    continue
+                if agency and _same_agency(h.get("agency") or "", agency):
+                    qmp_match = h
+                    break
+            if qmp_match is None and hits2:
+                qmp_match = next((h for h in hits2 if (h.get("name") or "") == name), None)
+            person_id = qmp_match.get("person_id") if qmp_match else None
         except Exception as e:
-            return {"error": f"企名片搜索失败：{e}"}
-        match = None
-        if agency:
-            match = next((h for h in hits if (h.get("agency") or "") == agency), None)
-        if match is None and hits:
-            match = hits[0]
+            return {"error": f"企名片新建投资人失败：{e}"}
 
-        # 3) 企名片也没 → 新建
-        if match is None:
-            try:
-                await qmingpian_add_person(
-                    name=name, agency=agency,
-                    phone=phone, wechat=wechat, email=email,
-                    position=position,
-                )
-                created_qmp = True
-                # 拿 person_id
-                hits2 = await qmingpian_search_person(name)
-                match = next((h for h in hits2 if (h.get("agency") or "") == (agency or "")), None) \
-                        or (hits2[0] if hits2 else None)
-            except Exception as e:
-                return {"error": f"企名片新建投资人失败：{e}"}
+    if not person_id:
+        return {"error": "无法从企名片拿到 person_id"}
 
-        if not match or not match.get("person_id"):
-            return {"error": "无法从企名片拿到 person_id"}
-        person_id = match["person_id"]
+    # 阶段 4：用 person_id 强匹配本地（避免简称/全称 agency 不一致重复建）
+    inv = (await ctx.db.execute(
+        select(Investor).where(
+            Investor.qmingpian_person_id == person_id,
+            Investor.is_active == True,
+        )
+    )).scalar_one_or_none()
 
-        # 4) 落本地
+    # 阶段 5：本地按 person_id 没命中 → 按 name + agency-fuzzy 在本地找
+    # 找到就把 person_id 回填，避免再次重复
+    if inv is None:
+        same_name = (await ctx.db.execute(
+            select(Investor).where(
+                Investor.is_active == True,
+                Investor.name == name,
+            ).limit(10)
+        )).scalars().all()
+        # 优先 agency fuzzy match
+        candidate_agency = agency or (qmp_match.get("agency") if qmp_match else "")
+        for c in same_name:
+            if c.qmingpian_person_id and c.qmingpian_person_id != person_id:
+                continue  # 已绑别人不能复用
+            if _same_agency(c.agency or "", candidate_agency):
+                inv = c
+                break
+        # 还没命中且只有一条同名候选且未绑 person_id → 复用
+        if inv is None and len(same_name) == 1 and not same_name[0].qmingpian_person_id:
+            inv = same_name[0]
+        if inv is not None and not inv.qmingpian_person_id:
+            inv.qmingpian_person_id = person_id
+            await ctx.db.commit()
+
+    # 阶段 6：本地依然没有 → 新建
+    if inv is None:
         inv = Investor(
             qmingpian_person_id=person_id,
             name=name,
-            agency=agency or (match.get("agency") or None),
-            position=position or (match.get("zhiwu") or None),
+            agency=agency or (qmp_match.get("agency") if qmp_match else None),
+            position=position or (qmp_match.get("zhiwu") if qmp_match else None),
             phone=[phone] if phone else None,
             email=[email] if email else None,
             wechat=[wechat] if wechat else None,
@@ -580,20 +676,7 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
         await ctx.db.refresh(inv)
         created_local = True
     else:
-        # 本地有：补全 phone/email/wechat/position 空字段（不覆盖）
-        changed = False
-        if phone and not (inv.phone or []):
-            inv.phone = [phone]; changed = True
-        if email and not (inv.email or []):
-            inv.email = [email]; changed = True
-        if wechat and not (inv.wechat or []):
-            inv.wechat = [wechat]; changed = True
-        if position and not inv.position:
-            inv.position = position; changed = True
-        if agency and not inv.agency:
-            inv.agency = agency; changed = True
-        if changed:
-            await ctx.db.commit()
+        await _supplement_investor_fields(ctx, inv, phone, email, wechat, position, agency)
 
     if not person_id:
         return {"error": f"本地 investor {inv.id} 没有 qmingpian_person_id，无法绑定名片"}
