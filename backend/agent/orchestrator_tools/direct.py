@@ -19,6 +19,10 @@ from skills.qmingpian import (
     qmingpian_update_person_tags,
     qmingpian_add_person_summary,
     qmingpian_export_ongoing_lunci,
+    qmingpian_search_agency,
+    qmingpian_add_agency,
+    qmingpian_add_agency_summary,
+    qmingpian_add_agency_file,
 )
 from .base import ToolCtx
 
@@ -151,6 +155,71 @@ TOOLS = [
                 "properties": {
                     "event_name": {"type": "string"},
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_agency",
+            "description": (
+                "通过关键字搜索企名片机构（多维库 + 外部库合并）。返回前 10 条候选，含 agency_name。"
+                "当 IR 提到某机构名但拼写/全称不确定时，**先调本工具消歧**再做 add_agency_summary / add_agency_file。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"keywords": {"type": "string"}},
+                "required": ["keywords"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_agency_summary",
+            "description": "为某机构写一条纪要保存到企名片机构详情。建议 50-300 字。当 IR 说「给 X 机构记一条纪要」时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agency": {"type": "string", "description": "机构名"},
+                    "summary": {"type": "string"},
+                },
+                "required": ["agency", "summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_agency",
+            "description": (
+                "新建一家机构到企名片（addAgencyInfo）。幂等：「机构已存在」视为成功。"
+                "通常不需要单独调用 —— add_agency_file 内部会自动调它。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_agency_file",
+            "description": (
+                "给某机构挂一份文件到企名片（BP/DP/Term Sheet 等）。"
+                "file_url 必须是公网可访问 URL（一般是先用 /api/upload 上传拿到的 Qiniu URL）。"
+                "内部会先调 addAgencyInfo 确保机构存在。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agency": {"type": "string", "description": "机构名"},
+                    "filename": {"type": "string", "description": "显示名（带扩展名）"},
+                    "file_url": {"type": "string"},
+                },
+                "required": ["agency", "filename", "file_url"],
             },
         },
     },
@@ -370,6 +439,83 @@ async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
 
 
+async def _search_agency(args: dict, ctx: ToolCtx) -> dict:
+    keywords = (args.get("keywords") or "").strip()
+    if not keywords:
+        return {"error": "keywords 不能为空"}
+    items: list[dict] = []
+    try:
+        hits = await qmingpian_search_agency(keywords)
+        for h in hits[:10]:
+            name = h.get("name") or h.get("agency") or h.get("agency_name") or ""
+            if not name:
+                continue
+            items.append({"agency_name": name, "uuid": h.get("uuid") or "", "source": "multi"})
+    except Exception as e:
+        logger.warning("search_agency multi failed: %s", e)
+    if len(items) < 10:
+        try:
+            from skills.qmingpian import qmingpian_search_external_agency
+            ext = await qmingpian_search_external_agency(keywords)
+            seen = {it["agency_name"] for it in items}
+            for raw in ext:
+                name = raw if isinstance(raw, str) else (raw.get("name") if isinstance(raw, dict) else None)
+                if not name or name in seen:
+                    continue
+                items.append({"agency_name": name, "source": "external"})
+                seen.add(name)
+                if len(items) >= 10:
+                    break
+        except Exception as e:
+            logger.warning("search_agency external failed: %s", e)
+    return {"ok": True, "count": len(items), "results": items}
+
+
+async def _add_agency_summary(args: dict, ctx: ToolCtx) -> dict:
+    agency = (args.get("agency") or "").strip()
+    summary = (args.get("summary") or "").strip()
+    if not agency or not summary:
+        return {"error": "agency 和 summary 都必填"}
+    ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    if not ir_row or not ir_row.qmingpian_username:
+        return {"error": "当前 IR 未配置企名片用户名"}
+    try:
+        await qmingpian_add_agency_summary(
+            agency=agency, summary=summary, user_name=ir_row.qmingpian_username,
+        )
+    except Exception as e:
+        return {"error": f"企名片写入机构纪要失败：{e}"}
+    return {"ok": True, "agency": agency, "summary_preview": summary[:60]}
+
+
+async def _add_agency(args: dict, ctx: ToolCtx) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"error": "name 不能为空"}
+    try:
+        data = await qmingpian_add_agency(name)
+    except Exception as e:
+        return {"error": f"企名片新增机构失败：{e}"}
+    return {"ok": True, "agency": name, "existed": bool(data.get("existed"))}
+
+
+async def _add_agency_file(args: dict, ctx: ToolCtx) -> dict:
+    agency = (args.get("agency") or "").strip()
+    filename = (args.get("filename") or "").strip()
+    file_url = (args.get("file_url") or "").strip()
+    if not agency or not filename or not file_url:
+        return {"error": "agency / filename / file_url 都必填"}
+    ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    user_name = ir_row.qmingpian_username if ir_row else ""
+    try:
+        await qmingpian_add_agency_file(
+            agency_name=agency, filename=filename, file_url=file_url, user_name=user_name or "",
+        )
+    except Exception as e:
+        return {"error": f"企名片挂载机构文件失败：{e}"}
+    return {"ok": True, "agency": agency, "filename": filename}
+
+
 async def _list_ongoing(args: dict, ctx: ToolCtx) -> dict:
     event_name = (args.get("event_name") or "").strip()
     try:
@@ -436,6 +582,10 @@ _DISPATCH = {
     "add_person_summary":        _add_summary,
     "record_interaction":        _record_interaction,
     "list_ongoing_project_contacts": _list_ongoing,
+    "search_agency":             _search_agency,
+    "add_agency_summary":        _add_agency_summary,
+    "add_agency":                _add_agency,
+    "add_agency_file":           _add_agency_file,
 }
 
 
