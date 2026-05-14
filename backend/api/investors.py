@@ -420,10 +420,10 @@ async def enrich_from_qmingpian(
     _: dict = Depends(get_current_ir),
 ):
     """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业/纪要/历史推荐）。
-    查不到时返回 200 + 空字段；同名多人时若 export 返回的 agency 与 expected_agency 不匹配，
-    视为「拿到了别人那条」，同样返回空（避免污染当前投资人详情）。"""
+    查不到时返回 200 + 空字段；同名多人时按 expected_agency fuzzy 选对的那一行；
+    如果选不出对的（agency 完全不匹配）→ 返回空字段，不污染当前投资人详情。"""
     try:
-        data = await qmingpian_export_person(person_name)
+        data = await qmingpian_export_person(person_name, expected_agency=expected_agency or "")
     except Exception:
         return EnrichedQmingpianOut()
     if not data or not isinstance(data, dict):

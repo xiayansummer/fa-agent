@@ -363,20 +363,49 @@ async def qmingpian_search_jigou(keywords: str) -> list[dict]:
     return data.get("data", {}).get("list", [])
 
 
+def _agency_brand_for_match(s: str) -> str:
+    """同 direct.py 的逻辑：去掉常见地名前缀，取前 2 字。仅供本模块 export 解析时匹配。"""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    prefixes = ["珠海", "上海", "北京", "深圳", "广州", "杭州", "成都", "南京", "苏州",
+                "天津", "重庆", "宁波", "厦门", "西安", "武汉", "长沙", "香港", "澳门",
+                "广东省", "浙江省", "江苏省", "山东省", "福建省"]
+    for pre in sorted(prefixes, key=len, reverse=True):
+        if s.startswith(pre):
+            s = s[len(pre):]
+            break
+    return s[:2]
+
+
+def _same_agency_loose(a: str, b: str) -> bool:
+    a, b = (a or "").strip(), (b or "").strip()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) >= 2 and a in b:
+        return True
+    if len(b) >= 2 and b in a:
+        return True
+    ba, bb = _agency_brand_for_match(a), _agency_brand_for_match(b)
+    return bool(ba) and ba == bb
+
+
 @skill(registry=skill_registry, name="企名片.导出投资人详情",
-       version="1.0", timeout=15, retry=1)
-async def qmingpian_export_person(person_name: str) -> dict:
+       version="1.1", timeout=15, retry=1)
+async def qmingpian_export_person(person_name: str, expected_agency: str = "") -> dict:
     """通过姓名导出投资人详情（xlsx）。
 
-    返回包含 4 个 sheet 的 xlsx，解析后返回：
-    - agency / phone / email / industry —— 来自"投资人详情"sheet
-    - summaries: list of {content, creator, created_at} —— 来自"投资人纪要"sheet
-    - history: list of {event, agency, industry, round, status, feedback, contact_time}
-      —— 来自"历史推荐"sheet
-    - familiar_persons: list of {name, level} —— 来自"熟悉人"sheet
-      （团队里各 IR 对该投资人的熟悉度，name 是 IR 的企名片用户名）
+    同名场景：企名片返回的 "投资人详情" sheet 会有多行（每行一个同名人），
+    其他 sheet（纪要/历史/熟悉人）在同名场景下**不会被返回**（API 行为）。
+    expected_agency 用于在多行场景下精确选中目标条；不传则取第一条。
 
-    只能查到当前 open_id 范围内的投资人（自己加过的或被共享的）。
+    单一记录场景：xlsx 含 4 个 sheet，正常解析。
+
+    返回：
+    - agency / phone / email / industry —— 来自"投资人详情"sheet 的选中行
+    - summaries / history / familiar_persons —— 来自对应 sheet（同名时为空）
     """
     import io
     from openpyxl import load_workbook
@@ -406,8 +435,23 @@ async def qmingpian_export_person(person_name: str) -> dict:
         headers = [str(c).strip() if c else "" for c in rows[1]]
 
         if sn == "投资人详情":
-            values = rows[2]
-            for h, v in zip(headers, values):
+            # 多行：每行一个同名人。按 expected_agency fuzzy 选；不匹配 → 取第一行兜底
+            data_rows = rows[2:]
+            chosen_row = None
+            if expected_agency and "机构" in headers:
+                idx_ag = headers.index("机构")
+                for row in data_rows:
+                    if not row or len(row) <= idx_ag:
+                        continue
+                    row_agency = str(row[idx_ag] or "").strip()
+                    if _same_agency_loose(row_agency, expected_agency):
+                        chosen_row = row
+                        break
+            if chosen_row is None and data_rows:
+                chosen_row = data_rows[0]
+            if chosen_row is None:
+                continue
+            for h, v in zip(headers, chosen_row):
                 if not h or v in (None, ""):
                     continue
                 if h == "机构":
