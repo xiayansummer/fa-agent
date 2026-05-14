@@ -278,9 +278,14 @@ def _build_user_content(text: str):
         return text
     img_url, filename = m.group(1), m.group(2)
     rest = (text[:m.start()] + text[m.end():]).strip()
+    # ⚠️ image_url 走传输层，LLM 看不到 URL 字符串本身。
+    # 必须在 text 里写出 URL 才能让 LLM 当参数传给 tool。
     instruction = (
-        f"用户上传了一张图片（文件名 {filename}），如果是名片请直接 OCR 出"
-        f"姓名/机构/职务/手机/邮箱/微信等字段，然后据此选择并调用合适工具（首选 bind_business_card）。"
+        f"用户上传了一张图片。\n"
+        f"file_url: {img_url}\n"
+        f"filename: {filename}\n\n"
+        f"如果是名片请 OCR 出姓名/机构/职务/手机/邮箱/微信，然后调 bind_business_card 工具，"
+        f"file_url 参数请**原样复制**上面那个 https:// 开头的完整 URL，不要传文件名。"
     )
     if rest:
         instruction += f"\n用户附加说明：{rest}"
