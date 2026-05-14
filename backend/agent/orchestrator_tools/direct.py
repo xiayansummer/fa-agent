@@ -14,6 +14,7 @@ from services import crypto_service
 from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
 from skills.qmingpian import (
     qmingpian_search_person,
+    qmingpian_add_person,
     qmingpian_add_familiar_person,
     qmingpian_update_familiar_person,
     qmingpian_update_person_tags,
@@ -164,9 +165,8 @@ TOOLS = [
         "function": {
             "name": "add_person_card",
             "description": (
-                "把已上传到 Qiniu 的名片图片绑定到某投资人（企名片 PC 端能看到这张名片）。"
-                "当 IR 上传图片并说「关联给 X」「这是 X 的名片」「挂到投资人 X」等意图时调用。"
-                "若不知道 investor_id，先用 search_investor 拿；本工具需要本地 investor_id（不是企名片 person_id，会自动转换）。"
+                "把已上传图片绑定为某**已存在投资人**的名片。若不确定该投资人本地是否存在/企名片是否有，"
+                "**优先用 bind_business_card**（原子化注册+绑定）。本工具只在已知 investor_id 且本地+企名片都已落地时用。"
             ),
             "parameters": {
                 "type": "object",
@@ -175,6 +175,33 @@ TOOLS = [
                     "file_url": {"type": "string", "description": "已上传图片的公网 URL"},
                 },
                 "required": ["investor_id", "file_url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bind_business_card",
+            "description": (
+                "**名片绑定的统一入口**：传名片图 URL + 投资人姓名 + 可选机构/职务/手机/邮箱/微信，工具内部自动："
+                "1) 本地有同名同机构投资人 → 复用；本地无 → 查企名片 → 有就落地到本地表 → 没有就新建企名片+落地本地。"
+                "2) 拿到 qmingpian_person_id 后调 addPersonCard 把图绑上。"
+                "3) 如果传了 phone/email/wechat/position，已存在的投资人会补全空字段（不覆盖已有值）。"
+                "当 IR 上传图片说「关联投资人 X」「这是 X 的名片」时优先用本工具，避免触发 search 失效路径。"
+                "用户消息里如果提到电话/邮箱/微信，请一并传进来；没提到留空即可。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_url": {"type": "string", "description": "名片图片公网 URL（必填）"},
+                    "name":     {"type": "string", "description": "投资人姓名（必填）"},
+                    "agency":   {"type": "string", "description": "机构名"},
+                    "position": {"type": "string", "description": "职务（企名片字段 zhiwu）"},
+                    "phone":    {"type": "string"},
+                    "email":    {"type": "string"},
+                    "wechat":   {"type": "string"},
+                },
+                "required": ["file_url", "name"],
             },
         },
     },
@@ -459,6 +486,125 @@ async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
 
 
+async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
+    file_url = (args.get("file_url") or "").strip()
+    name = (args.get("name") or "").strip()
+    if not file_url or not name:
+        return {"error": "file_url 和 name 都必填"}
+    agency = (args.get("agency") or "").strip()
+    position = (args.get("position") or "").strip()
+    phone = (args.get("phone") or "").strip()
+    email = (args.get("email") or "").strip()
+    wechat = (args.get("wechat") or "").strip()
+
+    ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    if not ir_row or not ir_row.qmingpian_username:
+        return {"error": "当前 IR 未配置企名片用户名"}
+
+    # 1) 本地查
+    q = select(Investor).where(Investor.is_active == True, Investor.name == name)
+    if agency:
+        q = q.where(Investor.agency == agency)
+    candidates = (await ctx.db.execute(q.limit(3))).scalars().all()
+    if len(candidates) > 1:
+        return {"error": f"本地有 {len(candidates)} 个同名「{name}」候选，请用 search_investor 进一步指定 agency"}
+
+    inv: Optional[Investor] = candidates[0] if candidates else None
+    person_id: Optional[str] = inv.qmingpian_person_id if inv else None
+    created_local = False
+    created_qmp = False
+
+    # 2) 没本地 → 企名片 search
+    if inv is None:
+        try:
+            hits = await qmingpian_search_person(name)
+        except Exception as e:
+            return {"error": f"企名片搜索失败：{e}"}
+        match = None
+        if agency:
+            match = next((h for h in hits if (h.get("agency") or "") == agency), None)
+        if match is None and hits:
+            match = hits[0]
+
+        # 3) 企名片也没 → 新建
+        if match is None:
+            try:
+                await qmingpian_add_person(
+                    name=name, agency=agency,
+                    phone=phone, wechat=wechat, email=email,
+                    position=position,
+                )
+                created_qmp = True
+                # 拿 person_id
+                hits2 = await qmingpian_search_person(name)
+                match = next((h for h in hits2 if (h.get("agency") or "") == (agency or "")), None) \
+                        or (hits2[0] if hits2 else None)
+            except Exception as e:
+                return {"error": f"企名片新建投资人失败：{e}"}
+
+        if not match or not match.get("person_id"):
+            return {"error": "无法从企名片拿到 person_id"}
+        person_id = match["person_id"]
+
+        # 4) 落本地
+        inv = Investor(
+            qmingpian_person_id=person_id,
+            name=name,
+            agency=agency or (match.get("agency") or None),
+            position=position or (match.get("zhiwu") or None),
+            phone=[phone] if phone else None,
+            email=[email] if email else None,
+            wechat=[wechat] if wechat else None,
+            is_active=True,
+        )
+        ctx.db.add(inv)
+        await ctx.db.commit()
+        await ctx.db.refresh(inv)
+        created_local = True
+    else:
+        # 本地有：补全 phone/email/wechat/position 空字段（不覆盖）
+        changed = False
+        if phone and not (inv.phone or []):
+            inv.phone = [phone]; changed = True
+        if email and not (inv.email or []):
+            inv.email = [email]; changed = True
+        if wechat and not (inv.wechat or []):
+            inv.wechat = [wechat]; changed = True
+        if position and not inv.position:
+            inv.position = position; changed = True
+        if agency and not inv.agency:
+            inv.agency = agency; changed = True
+        if changed:
+            await ctx.db.commit()
+
+    if not person_id:
+        return {"error": f"本地 investor {inv.id} 没有 qmingpian_person_id，无法绑定名片"}
+
+    # 5) 绑名片
+    try:
+        await qmingpian_add_person_card(
+            person_id=person_id, img_url=file_url,
+            create_name=ir_row.qmingpian_username,
+        )
+    except Exception as e:
+        return {"error": f"企名片绑定名片失败：{e}",
+                "investor_id": inv.id, "created_local": created_local}
+
+    return {
+        "ok": True,
+        "investor_id": inv.id,
+        "name": inv.name,
+        "agency": inv.agency,
+        "qmingpian_person_id": person_id,
+        "created_local": created_local,
+        "created_in_qmingpian": created_qmp,
+        "fields_supplied": {
+            "phone": bool(phone), "email": bool(email),
+            "wechat": bool(wechat), "position": bool(position),
+        },
+    }
+
+
 async def _add_person_card(args: dict, ctx: ToolCtx) -> dict:
     inv_id = args.get("investor_id")
     file_url = (args.get("file_url") or "").strip()
@@ -631,6 +777,7 @@ _DISPATCH = {
     "add_agency":                _add_agency,
     "add_agency_file":           _add_agency_file,
     "add_person_card":           _add_person_card,
+    "bind_business_card":        _bind_business_card,
 }
 
 
