@@ -136,7 +136,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "set_investor_tags",
-            "description": "覆盖式设置投资人在企名片的标签（如「美元」「消费品牌」）。tags=[] 表示清空。",
+            "description": (
+                "覆盖式设置投资人在企名片的标签（如「美元」「消费品牌」）。"
+                "**至少要 1 个**标签 —— 企名片 API 不支持清空，要清得在 PC 端手动删。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -480,14 +483,17 @@ async def _set_tags(args: dict, ctx: ToolCtx) -> dict:
         return {"error": "investor_id 和 tags 都必填"}
     if not isinstance(tags, list):
         return {"error": "tags 必须是字符串数组"}
+    cleaned = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+    if not cleaned:
+        return {"error": "tags 不能为空 —— 企名片 API 不支持清空标签，需在 PC 端手动删除"}
     inv = await _resolve_investor(ctx, inv_id)
     if not inv:
         return {"error": f"investor_id={inv_id} 不存在"}
     try:
-        await qmingpian_update_person_tags(name=inv.name, agency=inv.agency or "", tags=tags)
+        await qmingpian_update_person_tags(name=inv.name, agency=inv.agency or "", tags=cleaned)
     except Exception as e:
         return {"error": f"企名片同步失败：{e}"}
-    return {"ok": True, "investor_id": inv_id, "name": inv.name, "tags": tags}
+    return {"ok": True, "investor_id": inv_id, "name": inv.name, "tags": cleaned}
 
 
 async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
