@@ -23,6 +23,7 @@ from skills.qmingpian import (
     qmingpian_add_agency,
     qmingpian_add_agency_summary,
     qmingpian_add_agency_file,
+    qmingpian_add_person_card,
 )
 from .base import ToolCtx
 
@@ -155,6 +156,25 @@ TOOLS = [
                 "properties": {
                     "event_name": {"type": "string"},
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_person_card",
+            "description": (
+                "把已上传到 Qiniu 的名片图片绑定到某投资人（企名片 PC 端能看到这张名片）。"
+                "当 IR 上传图片并说「关联给 X」「这是 X 的名片」「挂到投资人 X」等意图时调用。"
+                "若不知道 investor_id，先用 search_investor 拿；本工具需要本地 investor_id（不是企名片 person_id，会自动转换）。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "investor_id": {"type": "integer", "description": "本地 investor 表主键"},
+                    "file_url": {"type": "string", "description": "已上传图片的公网 URL"},
+                },
+                "required": ["investor_id", "file_url"],
             },
         },
     },
@@ -439,6 +459,30 @@ async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
 
 
+async def _add_person_card(args: dict, ctx: ToolCtx) -> dict:
+    inv_id = args.get("investor_id")
+    file_url = (args.get("file_url") or "").strip()
+    if not inv_id or not file_url:
+        return {"error": "investor_id 和 file_url 都必填"}
+    inv = await _resolve_investor(ctx, inv_id)
+    if not inv:
+        return {"error": f"investor_id={inv_id} 不存在"}
+    if not inv.qmingpian_person_id:
+        return {"error": f"投资人 {inv.name} 在企名片侧无 person_id，无法绑定名片"}
+    ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
+    if not ir_row or not ir_row.qmingpian_username:
+        return {"error": "当前 IR 未配置企名片用户名"}
+    try:
+        await qmingpian_add_person_card(
+            person_id=inv.qmingpian_person_id,
+            img_url=file_url,
+            create_name=ir_row.qmingpian_username,
+        )
+    except Exception as e:
+        return {"error": f"企名片绑定名片失败：{e}"}
+    return {"ok": True, "investor_id": inv_id, "name": inv.name}
+
+
 async def _search_agency(args: dict, ctx: ToolCtx) -> dict:
     keywords = (args.get("keywords") or "").strip()
     if not keywords:
@@ -586,6 +630,7 @@ _DISPATCH = {
     "add_agency_summary":        _add_agency_summary,
     "add_agency":                _add_agency,
     "add_agency_file":           _add_agency_file,
+    "add_person_card":           _add_person_card,
 }
 
 
