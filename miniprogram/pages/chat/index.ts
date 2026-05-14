@@ -40,6 +40,12 @@ interface CalendarEvent {
   action_prefill: string;
 }
 
+interface PendingFile {
+  url: string;
+  name: string;
+  purpose: 'doc' | 'image';
+}
+
 interface PageData {
   messages: Message[];
   input: string;
@@ -50,6 +56,7 @@ interface PageData {
   modalBody: string;
   modalAgentTitle: string;
   modalThreadId: string;
+  pendingFile?: PendingFile;
 }
 
 Page<PageData, {}>({
@@ -63,6 +70,7 @@ Page<PageData, {}>({
     modalBody: '',
     modalAgentTitle: '',
     modalThreadId: '',
+    pendingFile: undefined,
   },
 
   onLoad() {
@@ -180,11 +188,20 @@ Page<PageData, {}>({
 
   async onSend() {
     const text = this.data.input.trim();
-    if (!text) return;
-    this.setData({ input: '' });
+    const pending = this.data.pendingFile;
+    if (!text && !pending) return;
+    this.setData({ input: '', pendingFile: undefined });
+
+    // pendingFile 存在时：bubble 显示精简版（不含 URL），发给 agent 的 message 带 URL
+    const displayText = pending
+      ? `📎 ${pending.name}${text ? '\n' + text : ''}`
+      : text;
+    const sendText = pending
+      ? `[IR 已上传${pending.purpose === 'image' ? '图片' : '文档'} url=${pending.url} 文件名=${pending.name}] ${text || '请根据上下文处理这个文件，或反问 IR 想做什么'}`
+      : text;
 
     const userMsgId = `u-${Date.now()}`;
-    this._appendMessage({ id: userMsgId, kind: 'user', text });
+    this._appendMessage({ id: userMsgId, kind: 'user', text: displayText });
 
     // thinking
     const thinkingId = `t-${Date.now()}`;
@@ -197,7 +214,7 @@ Page<PageData, {}>({
 
     try {
       const res = await api.post<{ reply: string; agent_role?: string; thread_id?: string }>('/api/agent/chat', {
-        message: text,
+        message: sendText,
         history: this.data.history.slice(-10),
       });
 
@@ -217,7 +234,7 @@ Page<PageData, {}>({
       // 更新 history
       const newHistory = [
         ...this.data.history,
-        { role: 'user' as const, content: text },
+        { role: 'user' as const, content: sendText },
         { role: 'assistant' as const, content: res.reply },
       ];
       this.setData({ history: newHistory.slice(-10) });
@@ -447,6 +464,121 @@ Page<PageData, {}>({
       }
     } catch (err: any) {
       wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
+    }
+  },
+
+  // ===== 文件上传 =====
+
+  onClearPending() {
+    this.setData({ pendingFile: undefined });
+  },
+
+  async onPlusTap() {
+    const choice = await new Promise<number | null>((resolve) => {
+      wx.showActionSheet({
+        itemList: ['🎵 会议录音（音频）', '📎 文档（BP / PDF / Word）', '🖼️ 图片'],
+        success: (r) => resolve(r.tapIndex),
+        fail: () => resolve(null),
+      });
+    });
+    if (choice === null) return;
+    if (choice === 0) await this._uploadAndDispatchAudio();
+    else if (choice === 1) await this._stagePending('doc');
+    else await this._stagePending('image');
+  },
+
+  async _uploadToQiniu(filePath: string, name: string, purpose: 'audio' | 'doc' | 'image'): Promise<string> {
+    const tokenRes = await api.post<{ token: string; key: string; upload_url: string }>(
+      '/api/upload/token', { purpose, filename: name }
+    );
+    await new Promise<void>((resolve, reject) => {
+      wx.uploadFile({
+        url: tokenRes.upload_url,
+        filePath,
+        name: 'file',
+        formData: { token: tokenRes.token, key: tokenRes.key },
+        success: r => r.statusCode === 200 ? resolve() : reject(new Error(`upload ${r.statusCode}`)),
+        fail: err => reject(new Error(err.errMsg || 'upload failed')),
+      });
+    });
+    const signRes = await api.get<{ url: string }>(
+      `/api/upload/sign?key=${encodeURIComponent(tokenRes.key)}&expires=86400`
+    );
+    return signRes.url;
+  },
+
+  async _uploadAndDispatchAudio() {
+    const fileRes = await new Promise<any>((resolve) => {
+      wx.chooseMessageFile({
+        count: 1, type: 'file',
+        extension: ['mp3', 'm4a', 'wav', 'aac', 'mp4'],
+        success: r => resolve(r.tempFiles[0]),
+        fail: () => resolve(null),
+      });
+    });
+    if (!fileRes) return;
+    if (fileRes.size > 200 * 1024 * 1024) {
+      wx.showToast({ title: '文件超过 200MB', icon: 'none' });
+      return;
+    }
+    wx.showLoading({ title: '上传中...', mask: true });
+    try {
+      const url = await this._uploadToQiniu(fileRes.path, fileRes.name, 'audio');
+      wx.hideLoading();
+      const userId = `u-${Date.now()}`;
+      this._appendMessage({ id: userId, kind: 'user', text: `🎵 ${fileRes.name}` });
+      const runRes = await api.post<{ thread_id: string }>('/api/agent/run', {
+        task_type: 'meeting_minutes',
+        audio_url: url,
+      });
+      this._subscribeToThread(runRes.thread_id);
+    } catch (e: any) {
+      wx.hideLoading();
+      wx.showToast({ title: e?.message || '上传失败', icon: 'none' });
+    }
+  },
+
+  async _stagePending(purpose: 'doc' | 'image') {
+    let pick: { path: string; name: string; size: number } | null = null;
+    if (purpose === 'image') {
+      pick = await new Promise((resolve) => {
+        wx.chooseImage({
+          count: 1,
+          success: (r) => {
+            const p = r.tempFilePaths[0];
+            const f = (r as any).tempFiles?.[0];
+            resolve({ path: p, name: f?.name || p.split('/').pop() || 'image', size: f?.size || 0 });
+          },
+          fail: () => resolve(null),
+        });
+      });
+    } else {
+      pick = await new Promise((resolve) => {
+        wx.chooseMessageFile({
+          count: 1, type: 'file',
+          extension: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv'],
+          success: (r) => {
+            const f = r.tempFiles[0];
+            resolve({ path: f.path, name: f.name, size: f.size });
+          },
+          fail: () => resolve(null),
+        });
+      });
+    }
+    if (!pick) return;
+    if (pick.size > 50 * 1024 * 1024) {
+      wx.showToast({ title: '文件超过 50MB', icon: 'none' });
+      return;
+    }
+    wx.showLoading({ title: '上传中...', mask: true });
+    try {
+      const url = await this._uploadToQiniu(pick.path, pick.name, purpose);
+      wx.hideLoading();
+      this.setData({ pendingFile: { url, name: pick.name, purpose } });
+      wx.showToast({ title: '已附加，发送指令', icon: 'success', duration: 1500 });
+    } catch (e: any) {
+      wx.hideLoading();
+      wx.showToast({ title: e?.message || '上传失败', icon: 'none' });
     }
   },
 

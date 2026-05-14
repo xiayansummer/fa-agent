@@ -74,10 +74,19 @@ page { background: var(--bg-base); }
 .input-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; padding: 20rpx 24rpx;
-  display: flex; gap: 16rpx;
+  display: flex; gap: 16rpx; align-items: center;
   border-top: 1rpx solid var(--border-light);
   z-index: 10;
 }
+.plus-btn {
+  flex-shrink: 0;
+  width: 72rpx; height: 72rpx;
+  background: #f5f5f7; border-radius: 50%;
+  color: #6b7280; font-size: 40rpx; font-weight: 300;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.plus-btn:active { background: #e5e7eb; }
 .input {
   flex: 1; height: 72rpx;
   background: #f5f5f7; border-radius: 36rpx;
@@ -91,3 +100,23 @@ page { background: var(--bg-base); }
   border-radius: 36rpx;
   font-size: 28rpx;
 }
+
+.pending-chip {
+  position: fixed;
+  left: 24rpx; right: 24rpx;
+  bottom: 116rpx;
+  background: #eef2ff; border: 1rpx solid #c7d2fe;
+  border-radius: 12rpx;
+  padding: 12rpx 20rpx;
+  display: flex; align-items: center; gap: 12rpx;
+  font-size: 26rpx; color: #4338ca;
+  z-index: 11;
+}
+.chip-icon { flex-shrink: 0; }
+.chip-name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chip-clear {
+  flex-shrink: 0;
+  width: 40rpx; height: 40rpx; line-height: 36rpx; text-align: center;
+  color: #6366f1; font-size: 32rpx; border-radius: 50%;
+}
+.chip-clear:active { background: #c7d2fe; }

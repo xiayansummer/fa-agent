@@ -25,12 +25,19 @@
     </block>
   </scroll-view>
 
+  <view class="pending-chip" wx:if="{{pendingFile}}">
+    <text class="chip-icon">📎</text>
+    <text class="chip-name">{{pendingFile.name}}</text>
+    <view class="chip-clear" catchtap="onClearPending">×</view>
+  </view>
+
   <view class="input-bar">
+    <view class="plus-btn" bindtap="onPlusTap">+</view>
     <input
       class="input"
       value="{{input}}"
       bindinput="onInput"
-      placeholder="问 Agent 任何事..."
+      placeholder="{{pendingFile ? '发送指令（如挂到红杉机构）...' : '问 Agent 任何事...'}}"
       confirm-type="send"
       bindconfirm="onSend" />
     <view class="send-btn" bindtap="onSend">发送</view>
