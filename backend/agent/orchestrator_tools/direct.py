@@ -445,11 +445,16 @@ async def _search_investor(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "count": len(items), "results": items[:10]}
 
 
+_FAMILIARITY_LEVELS = {"未接触", "加过微信", "见过面", "了解投资偏好", "跟进过我们的项目", "好友"}
+
+
 async def _set_familiarity(args: dict, ctx: ToolCtx) -> dict:
     inv_id = args.get("investor_id")
     level = (args.get("level") or "").strip()
     if not inv_id or not level:
         return {"error": "investor_id 和 level 都必填"}
+    if level not in _FAMILIARITY_LEVELS:
+        return {"error": f"level 必须是 {sorted(_FAMILIARITY_LEVELS)}"}
     inv = await _resolve_investor(ctx, inv_id)
     if not inv:
         return {"error": f"investor_id={inv_id} 不存在"}
@@ -759,31 +764,42 @@ async def _add_person_card(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "investor_id": inv_id, "name": inv.name}
 
 
+def _extract_agency_name(raw) -> tuple[str, str]:
+    """企名片两个 search 接口的返回有时是 str、有时是 dict —— 统一抽 (name, uuid)。"""
+    if isinstance(raw, str):
+        return raw, ""
+    if isinstance(raw, dict):
+        name = raw.get("name") or raw.get("agency") or raw.get("agency_name") or ""
+        return name, (raw.get("uuid") or "")
+    return "", ""
+
+
 async def _search_agency(args: dict, ctx: ToolCtx) -> dict:
     keywords = (args.get("keywords") or "").strip()
     if not keywords:
         return {"error": "keywords 不能为空"}
     items: list[dict] = []
+    seen: set[str] = set()
     try:
         hits = await qmingpian_search_agency(keywords)
         for h in hits[:10]:
-            name = h.get("name") or h.get("agency") or h.get("agency_name") or ""
-            if not name:
+            name, uuid = _extract_agency_name(h)
+            if not name or name in seen:
                 continue
-            items.append({"agency_name": name, "uuid": h.get("uuid") or "", "source": "multi"})
+            seen.add(name)
+            items.append({"agency_name": name, "uuid": uuid, "source": "multi"})
     except Exception as e:
         logger.warning("search_agency multi failed: %s", e)
     if len(items) < 10:
         try:
             from skills.qmingpian import qmingpian_search_external_agency
             ext = await qmingpian_search_external_agency(keywords)
-            seen = {it["agency_name"] for it in items}
             for raw in ext:
-                name = raw if isinstance(raw, str) else (raw.get("name") if isinstance(raw, dict) else None)
+                name, _ = _extract_agency_name(raw)
                 if not name or name in seen:
                     continue
-                items.append({"agency_name": name, "source": "external"})
                 seen.add(name)
+                items.append({"agency_name": name, "source": "external"})
                 if len(items) >= 10:
                     break
         except Exception as e:
