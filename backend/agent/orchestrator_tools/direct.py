@@ -32,15 +32,16 @@ from skills.qmingpian import (
 
 
 async def _qiniu_to_qmingpian_permanent_url(qiniu_signed_url: str) -> str:
-    """Qiniu 签名 URL (24h) → 下载 bytes → 重传企名片 OSS → 拿永久 URL。"""
+    """Qiniu 签名 URL (24h) → 下载 bytes → 重传企名片 OSS → 拿永久 URL。
+    用于名片图和机构文件（BP/DP/TS 等）。"""
     async with _httpx.AsyncClient(timeout=30) as client:
         r = await client.get(qiniu_signed_url)
         if r.status_code != 200:
-            raise ValueError(f"从 Qiniu 下载图片失败：HTTP {r.status_code}")
-        img_bytes = r.content
-        mime = r.headers.get("content-type") or "image/jpeg"
-    filename = qiniu_signed_url.split("/")[-1].split("?")[0] or "card.jpg"
-    result = await qmingpian_upload_file(file_bytes=img_bytes, filename=filename, mime_type=mime)
+            raise ValueError(f"从 Qiniu 下载文件失败：HTTP {r.status_code}")
+        file_bytes = r.content
+        mime = r.headers.get("content-type") or "application/octet-stream"
+    filename = qiniu_signed_url.split("/")[-1].split("?")[0] or "file"
+    result = await qmingpian_upload_file(file_bytes=file_bytes, filename=filename, mime_type=mime)
     url = result.get("url") or ""
     if not url:
         raise ValueError(f"企名片 OSS 上传返回空 url: {result}")
