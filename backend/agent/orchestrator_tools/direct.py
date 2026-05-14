@@ -366,6 +366,7 @@ async def _schedule_meeting(args: dict, ctx: ToolCtx) -> dict:
         "subject": first.get("subject") or args.get("subject"),
         "start_time": first.get("start_time") or args.get("start_time"),
         "end_time": first.get("end_time") or args.get("end_time"),
+        "hint": "已预订成功；腾讯侧索引有 5-10 秒延迟，刚预订的会议在 list_my_upcoming_meetings 里可能短暂不可见。回复用户时直接用上面的 meeting_code/join_url 即可，不必再去 list 验证。",
     }
 
 
