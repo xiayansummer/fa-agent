@@ -611,29 +611,35 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
         if qmp_match is None:
             qmp_match = next((h for h in qmp_hits if (h.get("name") or "") == name), None)
 
+    permanent_card_url: Optional[str] = None
     if qmp_match:
         person_id = qmp_match.get("person_id")
     else:
-        # 阶段 3：企名片没有 → 新建
+        # 阶段 3：企名片没有 → 先把名片中转到企名片 OSS，再调 addPersonInfo 一并绑名片
         try:
-            await qmingpian_add_person(
+            permanent_card_url = await _qiniu_to_qmingpian_permanent_url(file_url)
+        except Exception as e:
+            return {"error": f"图片中转企名片失败：{e}"}
+        try:
+            add_result = await qmingpian_add_person(
                 name=name, agency=agency,
                 phone=phone, wechat=wechat, email=email,
                 position=position,
+                card_url=permanent_card_url,
             )
             created_qmp = True
-            # 重搜拿 person_id
-            hits2 = await qmingpian_search_person(name)
-            qmp_match = None
-            for h in hits2:
-                if (h.get("name") or "") != name:
-                    continue
-                if agency and _same_agency(h.get("agency") or "", agency):
-                    qmp_match = h
-                    break
-            if qmp_match is None and hits2:
-                qmp_match = next((h for h in hits2 if (h.get("name") or "") == name), None)
-            person_id = qmp_match.get("person_id") if qmp_match else None
+            person_id = add_result.get("person_id") if isinstance(add_result, dict) else None
+            # fallback：返回里没 person_id 就重搜（理论上不该发生）
+            if not person_id:
+                hits2 = await qmingpian_search_person(name)
+                for h in hits2:
+                    if (h.get("name") or "") != name:
+                        continue
+                    if agency and _same_agency(h.get("agency") or "", agency):
+                        person_id = h.get("person_id"); break
+                if not person_id and hits2:
+                    person_id = next((h.get("person_id") for h in hits2
+                                       if (h.get("name") or "") == name), None)
         except Exception as e:
             return {"error": f"企名片新建投资人失败：{e}"}
 
@@ -694,20 +700,21 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
     if not person_id:
         return {"error": f"本地 investor {inv.id} 没有 qmingpian_person_id，无法绑定名片"}
 
-    # 5) Qiniu 签名 URL 24h 过期 → 中转到企名片 OSS 拿永久 URL → 绑名片
-    try:
-        permanent_url = await _qiniu_to_qmingpian_permanent_url(file_url)
-    except Exception as e:
-        return {"error": f"图片中转企名片失败：{e}",
-                "investor_id": inv.id, "created_local": created_local}
-    try:
-        await qmingpian_add_person_card(
-            person_id=person_id, img_url=permanent_url,
-            create_name=ir_row.qmingpian_username,
-        )
-    except Exception as e:
-        return {"error": f"企名片绑定名片失败：{e}",
-                "investor_id": inv.id, "created_local": created_local}
+    # 5) 绑名片 —— 新建场景已经在 addPersonInfo(card_url=...) 一步绑过，跳过
+    if not created_qmp:
+        try:
+            permanent_card_url = await _qiniu_to_qmingpian_permanent_url(file_url)
+        except Exception as e:
+            return {"error": f"图片中转企名片失败：{e}",
+                    "investor_id": inv.id, "created_local": created_local}
+        try:
+            await qmingpian_add_person_card(
+                person_id=person_id, img_url=permanent_card_url,
+                create_name=ir_row.qmingpian_username,
+            )
+        except Exception as e:
+            return {"error": f"企名片绑定名片失败：{e}",
+                    "investor_id": inv.id, "created_local": created_local}
 
     return {
         "ok": True,

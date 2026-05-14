@@ -81,7 +81,7 @@ async def qmingpian_search_person(keywords: str) -> list[dict]:
 
 
 @skill(registry=skill_registry, name="企名片.添加投资人",
-       version="1.1", timeout=10, retry=1)
+       version="1.2", timeout=10, retry=1)
 async def qmingpian_add_person(
     name: str,
     agency: str,
@@ -95,11 +95,14 @@ async def qmingpian_add_person(
     office_location: str = "",      # 办公地区
     introduction: str = "",         # 简介
     is_dimission: int | None = None,  # 是否离职：1=离职 0=在职
+    card_url: str = "",             # 名片图企名片 OSS URL（先调 qmingpian_upload_file 拿）
 ) -> dict:
     """新增投资人到企名片。
 
     注意：企名片侧的实际字段名是 zhiwu/sex/tag（不是 position/gender/tags），
     本函数在 Python 层保留更友好的命名并内部映射。
+
+    返回 {person_id, ...}。传 card_url 可一并绑名片，无需再调 add_person_card。
     """
     form = _base({
         "name": name,
@@ -125,6 +128,8 @@ async def qmingpian_add_person(
         form["introduction"] = introduction
     if is_dimission is not None:
         form["is_dimission"] = str(int(is_dimission))
+    if card_url:
+        form["card_url"] = card_url
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{BASE_URL}/Person/addPersonInfo", data=form)
     return _check(resp).get("data", {})
