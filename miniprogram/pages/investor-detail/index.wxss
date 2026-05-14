@@ -164,6 +164,7 @@ page { background: var(--bg-base); }
 }
 .fam-row:last-child { border-bottom: none; }
 .fam-name { font-size: 28rpx; color: var(--text-primary); }
+.fam-empty { font-size: 26rpx; color: var(--text-secondary); padding: 8rpx 0; }
 .fam-level {
   font-size: 24rpx;
   padding: 6rpx 16rpx;

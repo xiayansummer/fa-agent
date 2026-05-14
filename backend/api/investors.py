@@ -416,16 +416,22 @@ async def upload_business_card(
 @router.get("/qmingpian/by-name", response_model=EnrichedQmingpianOut)
 async def enrich_from_qmingpian(
     person_name: str = Query(..., min_length=1, description="投资人姓名"),
+    expected_agency: Optional[str] = Query(None, description="本地侧机构名，用于同名消歧"),
     _: dict = Depends(get_current_ir),
 ):
     """按姓名从企名片 exportPersonOpen 拉投资人详情（机构/手机/邮箱/行业/纪要/历史推荐）。
-    查不到（不在 open_id 范围内）时返回 200 + 空字段。"""
+    查不到时返回 200 + 空字段；同名多人时若 export 返回的 agency 与 expected_agency 不匹配，
+    视为「拿到了别人那条」，同样返回空（避免污染当前投资人详情）。"""
     try:
         data = await qmingpian_export_person(person_name)
     except Exception:
         return EnrichedQmingpianOut()
     if not data or not isinstance(data, dict):
         return EnrichedQmingpianOut()
+    if expected_agency:
+        from agent.orchestrator_tools.direct import _same_agency
+        if not _same_agency(data.get("agency") or "", expected_agency):
+            return EnrichedQmingpianOut()
     return EnrichedQmingpianOut(
         agency=data.get("agency"),
         phone=data.get("phone"),

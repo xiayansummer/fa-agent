@@ -156,7 +156,8 @@ Page<PageData, {}>({
       summaries?: QmingpianSummary[];
       history?: QmingpianHistory[];
       familiar_persons?: QmingpianFamiliarPerson[];
-    }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}`,
+    }>(`/api/investors/qmingpian/by-name?person_name=${encodeURIComponent(personName)}` +
+       (agency ? `&expected_agency=${encodeURIComponent(agency)}` : ''),
        { silent: true }).catch(() => null);
 
     const searchhitPromise = api.get<{
@@ -179,9 +180,15 @@ Page<PageData, {}>({
       patch.qmingpianSummaries = summaries;
       patch.qmingpianHistory = byName.history || [];
       patch.qmingpianFamiliar = byName.familiar_persons || [];
-      // 联系方式：企名片有 → 用企名片；没有 → 保留本地（已经在 setData 设过）
-      if (byName.phone && byName.phone.length) patch.contactPhones = byName.phone;
-      if (byName.email && byName.email.length) patch.contactEmails = byName.email;
+      // 联系方式：本地优先（名片 OCR / 手工录入更准）；企名片只补本地空字段
+      const curPhones = this.data.contactPhones || [];
+      const curEmails = this.data.contactEmails || [];
+      if (!curPhones.length && byName.phone && byName.phone.length) {
+        patch.contactPhones = byName.phone;
+      }
+      if (!curEmails.length && byName.email && byName.email.length) {
+        patch.contactEmails = byName.email;
+      }
     }
 
     if (hit && hit.cards && hit.cards.length) {
