@@ -12,6 +12,7 @@ from models.investors import Investor
 from models.interaction_logs import InteractionLog
 from services import crypto_service
 from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
+import httpx as _httpx
 from skills.qmingpian import (
     qmingpian_search_person,
     qmingpian_add_person,
@@ -25,7 +26,24 @@ from skills.qmingpian import (
     qmingpian_add_agency_summary,
     qmingpian_add_agency_file,
     qmingpian_add_person_card,
+    qmingpian_upload_file,
 )
+
+
+async def _qiniu_to_qmingpian_permanent_url(qiniu_signed_url: str) -> str:
+    """Qiniu 签名 URL (24h) → 下载 bytes → 重传企名片 OSS → 拿永久 URL。"""
+    async with _httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(qiniu_signed_url)
+        if r.status_code != 200:
+            raise ValueError(f"从 Qiniu 下载图片失败：HTTP {r.status_code}")
+        img_bytes = r.content
+        mime = r.headers.get("content-type") or "image/jpeg"
+    filename = qiniu_signed_url.split("/")[-1].split("?")[0] or "card.jpg"
+    result = await qmingpian_upload_file(file_bytes=img_bytes, filename=filename, mime_type=mime)
+    url = result.get("url") or ""
+    if not url:
+        raise ValueError(f"企名片 OSS 上传返回空 url: {result}")
+    return url
 from .base import ToolCtx
 
 logger = logging.getLogger(__name__)
@@ -580,10 +598,15 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
     if not person_id:
         return {"error": f"本地 investor {inv.id} 没有 qmingpian_person_id，无法绑定名片"}
 
-    # 5) 绑名片
+    # 5) Qiniu 签名 URL 24h 过期 → 中转到企名片 OSS 拿永久 URL → 绑名片
+    try:
+        permanent_url = await _qiniu_to_qmingpian_permanent_url(file_url)
+    except Exception as e:
+        return {"error": f"图片中转企名片失败：{e}",
+                "investor_id": inv.id, "created_local": created_local}
     try:
         await qmingpian_add_person_card(
-            person_id=person_id, img_url=file_url,
+            person_id=person_id, img_url=permanent_url,
             create_name=ir_row.qmingpian_username,
         )
     except Exception as e:
@@ -619,9 +642,13 @@ async def _add_person_card(args: dict, ctx: ToolCtx) -> dict:
     if not ir_row or not ir_row.qmingpian_username:
         return {"error": "当前 IR 未配置企名片用户名"}
     try:
+        permanent_url = await _qiniu_to_qmingpian_permanent_url(file_url)
+    except Exception as e:
+        return {"error": f"图片中转企名片失败：{e}"}
+    try:
         await qmingpian_add_person_card(
             person_id=inv.qmingpian_person_id,
-            img_url=file_url,
+            img_url=permanent_url,
             create_name=ir_row.qmingpian_username,
         )
     except Exception as e:
@@ -698,8 +725,12 @@ async def _add_agency_file(args: dict, ctx: ToolCtx) -> dict:
     ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
     user_name = ir_row.qmingpian_username if ir_row else ""
     try:
+        permanent_url = await _qiniu_to_qmingpian_permanent_url(file_url)
+    except Exception as e:
+        return {"error": f"文件中转企名片失败：{e}"}
+    try:
         await qmingpian_add_agency_file(
-            agency_name=agency, filename=filename, file_url=file_url, user_name=user_name or "",
+            agency_name=agency, filename=filename, file_url=permanent_url, user_name=user_name or "",
         )
     except Exception as e:
         return {"error": f"企名片挂载机构文件失败：{e}"}

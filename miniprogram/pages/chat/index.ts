@@ -23,6 +23,8 @@ interface Message {
   actions?: any[];
   showStatus?: string;
   text?: string;
+  /** user kind：附加的图片预览（本地 tempFilePath 或上传后的签名 URL） */
+  imageUrl?: string;
   threadId?: string;  // 关联的 thread_id（用于 review）
   thinkingLabel?: string;
   inlineEditable?: boolean;  // 短内容才允许内联编辑
@@ -192,16 +194,23 @@ Page<PageData, {}>({
     if (!text && !pending) return;
     this.setData({ input: '', pendingFile: undefined });
 
-    // pendingFile 存在时：bubble 显示精简版（不含 URL），发给 agent 的 message 带 URL
+    // pendingFile 存在时：图片走缩略图，文档走 chip 文本
     const displayText = pending
-      ? `📎 ${pending.name}${text ? '\n' + text : ''}`
+      ? (pending.purpose === 'image'
+          ? text                                     // 图片：bubble 只显文字（图另起一块）
+          : `📎 ${pending.name}${text ? '\n' + text : ''}`)
       : text;
     const sendText = pending
       ? `[IR 已上传${pending.purpose === 'image' ? '图片' : '文档'} url=${pending.url} 文件名=${pending.name}] ${text || '请根据上下文处理这个文件，或反问 IR 想做什么'}`
       : text;
 
     const userMsgId = `u-${Date.now()}`;
-    this._appendMessage({ id: userMsgId, kind: 'user', text: displayText });
+    this._appendMessage({
+      id: userMsgId,
+      kind: 'user',
+      text: displayText,
+      imageUrl: pending && pending.purpose === 'image' ? pending.url : undefined,
+    });
 
     // thinking
     const thinkingId = `t-${Date.now()}`;
@@ -471,6 +480,11 @@ Page<PageData, {}>({
 
   onClearPending() {
     this.setData({ pendingFile: undefined });
+  },
+
+  onPreviewImage(e: WechatMiniprogram.TouchEvent) {
+    const url = e.currentTarget.dataset.url as string;
+    if (url) wx.previewImage({ urls: [url], current: url });
   },
 
   async onPlusTap() {

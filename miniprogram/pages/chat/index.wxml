@@ -2,7 +2,10 @@
   <scroll-view scroll-y class="messages" scroll-into-view="{{scrollToView}}" scroll-with-animation>
     <block wx:for="{{messages}}" wx:key="id">
       <view id="{{item.id}}">
-        <view wx:if="{{item.kind === 'user'}}" class="user-bubble">{{item.text}}</view>
+        <block wx:if="{{item.kind === 'user'}}">
+          <image wx:if="{{item.imageUrl}}" class="user-image" src="{{item.imageUrl}}" mode="widthFix" bindtap="onPreviewImage" data-url="{{item.imageUrl}}" />
+          <view wx:if="{{item.text}}" class="user-bubble">{{item.text}}</view>
+        </block>
         <rich-text wx:elif="{{item.kind === 'agent_text'}}"
                    class="agent-text agent-{{item.agent || 'content'}}"
                    nodes="{{item.bodyHtml}}"

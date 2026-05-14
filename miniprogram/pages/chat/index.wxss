@@ -16,10 +16,17 @@ page { background: var(--bg-base); }
   background: var(--agent-orchestrator); color: #fff;
   padding: 16rpx 24rpx; border-radius: 16rpx;
   max-width: 80%;
-  margin: 16rpx 0 16rpx auto;
+  margin: 8rpx 0 16rpx auto;
   font-size: 28rpx;
   line-height: 1.6;
   display: inline-block;
+}
+.user-image {
+  display: block;
+  max-width: 60%;
+  margin: 16rpx 0 8rpx auto;
+  border-radius: 16rpx;
+  background: #f3f4f6;
 }
 
 .agent-text {
