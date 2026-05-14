@@ -15,6 +15,7 @@ from services.tencent_meeting import TencentMeetingClient, TencentAuthError, Ten
 import httpx as _httpx
 from skills.qmingpian import (
     qmingpian_search_person,
+    qmingpian_search_person_by_phone,
     qmingpian_add_person,
     qmingpian_add_familiar_person,
     qmingpian_update_familiar_person,
@@ -580,23 +581,35 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
     created_local = False
     created_qmp = False
 
-    # 阶段 1：企名片是权威源，先搜
-    try:
-        qmp_hits = await qmingpian_search_person(name)
-    except Exception as e:
-        return {"error": f"企名片搜索失败：{e}"}
-
-    # 阶段 2：在企名片候选中挑出最匹配的一条
+    # 阶段 1a：优先用手机号查（唯一定位，绕开同名歧义）
     qmp_match = None
-    for h in qmp_hits:
-        if (h.get("name") or "") != name:
-            continue
-        if agency and _same_agency(h.get("agency") or "", agency):
-            qmp_match = h
-            break
+    if phone:
+        try:
+            phone_hits = await qmingpian_search_person_by_phone(phone)
+            for h in phone_hits:
+                if (h.get("name") or "") == name:
+                    qmp_match = h
+                    break
+            if qmp_match is None and len(phone_hits) == 1:
+                qmp_match = phone_hits[0]  # 该手机号只对应一个人，即使姓名 OCR 偏差也认
+        except Exception:
+            pass  # 手机查失败 fallback 到 name 查
+
+    # 阶段 1b：手机没命中 → 用姓名查（fuzzy agency 匹配）
+    qmp_hits: list = []
     if qmp_match is None:
-        # name 完全匹配的第一条（没传 agency 时，或所有 agency 都不像）
-        qmp_match = next((h for h in qmp_hits if (h.get("name") or "") == name), None)
+        try:
+            qmp_hits = await qmingpian_search_person(name)
+        except Exception as e:
+            return {"error": f"企名片搜索失败：{e}"}
+        for h in qmp_hits:
+            if (h.get("name") or "") != name:
+                continue
+            if agency and _same_agency(h.get("agency") or "", agency):
+                qmp_match = h
+                break
+        if qmp_match is None:
+            qmp_match = next((h for h in qmp_hits if (h.get("name") or "") == name), None)
 
     if qmp_match:
         person_id = qmp_match.get("person_id")

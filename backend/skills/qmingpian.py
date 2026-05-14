@@ -21,6 +21,43 @@ def _check(resp: httpx.Response) -> dict:
     return data
 
 
+def _normalize_phone(p: str) -> str:
+    """归一化手机号：剥除空格/+/-/括号，丢弃 86 国码前缀。"""
+    if not p:
+        return ""
+    s = "".join(ch for ch in str(p) if ch.isdigit())
+    if s.startswith("86") and len(s) == 13:
+        s = s[2:]
+    return s
+
+
+@skill(registry=skill_registry, name="企名片.按手机号查投资人",
+       version="1.0", timeout=10, retry=1, fallback=[])
+async def qmingpian_search_person_by_phone(phone: str) -> list[dict]:
+    """用手机号在企名片精准查投资人（open_id 鉴权）。
+    手机号天然唯一，可绕开同名歧义。+86/空格/横杠自动归一化。
+    没匹配返回 []。"""
+    p = _normalize_phone(phone)
+    if not p:
+        return []
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{BASE_URL}/Person/searchPerson",
+            data=_base({"keywords": p}),
+        )
+    body = _check(resp)
+    items = body.get("data", {}).get("list", []) or []
+    # 同 person_id 可能多次返回（多张名片），去重
+    seen, out = set(), []
+    for it in items:
+        pid = it.get("person_id")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(it)
+    return out
+
+
 @skill(registry=skill_registry, name="企名片.查询投资人",
        version="1.1", timeout=10, retry=2, fallback=[])
 async def qmingpian_search_person(keywords: str) -> list[dict]:
