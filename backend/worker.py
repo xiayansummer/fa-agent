@@ -11,6 +11,15 @@ from celery import Celery
 from celery.schedules import crontab
 from config import settings
 
+# Celery worker 子进程不会自动 import skills 模块 —— 必须在 worker.py 主入口
+# 显式导入，让 @skill 装饰器注册到 skill_registry。fastapi 进程在 main.py
+# 做的事，celery 这边也要做一遍。
+import skills.claude_skill   # noqa: F401
+import skills.tavily_skill   # noqa: F401
+import skills.qmingpian      # noqa: F401
+import skills.tencent_meeting  # noqa: F401
+import skills.asr_skill      # noqa: F401
+
 _API_BASE = settings.internal_api_base
 
 celery_app = Celery(
