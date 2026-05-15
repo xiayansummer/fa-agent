@@ -123,8 +123,12 @@ async def extract_action_items_node(state: AgentState) -> dict:
             title = (it.get("title") or "").strip()
             t = (it.get("type") or "other").strip()
             due = (it.get("due_date") or "").strip()
+            actor = (it.get("actor") or "").strip()
+            if not actor:
+                # 兜底：type 推断 actor
+                actor = "investor" if t == "investor_milestone" else "ir"
             if title and due:
-                items.append({"title": title, "type": t, "due_date": due})
+                items.append({"title": title, "actor": actor, "type": t, "due_date": due})
         return {
             "action_items": items,
             "skills_called": ["Claude.生成内容(action_items)"],
@@ -135,7 +139,8 @@ async def extract_action_items_node(state: AgentState) -> dict:
 
 
 async def dispatch_outreach_node(state: AgentState) -> dict:
-    """Outreach Agent：对 meeting_request 类型 action 生成预约文本，写 OutreachRecord(draft)。"""
+    """Outreach Agent：对 meeting_request 和 investor_milestone 两类 action 生成
+    草稿写 OutreachRecord(draft)。前者是预约线下，后者是提前 ping 投资人 milestone。"""
     if state.get("ir_action") == "rejected":
         return {}
     items = state.get("action_items") or []
@@ -144,13 +149,17 @@ async def dispatch_outreach_node(state: AgentState) -> dict:
     investor_ids = state.get("investor_ids") or []
     if not investor_ids:
         return {}
-    requests = [it for it in items if (it.get("type") == "meeting_request")]
-    if not requests:
+    # 两类各起草
+    DISPATCH_RULES = [
+        ("meeting_request",     "outreach_agent.meeting_request",     "outreach_预约"),
+        ("investor_milestone",  "outreach_agent.investor_milestone",  "outreach_milestone提醒"),
+    ]
+    target_items = [it for it in items if it.get("type") in {r[0] for r in DISPATCH_RULES}]
+    if not target_items:
         return {}
 
     summary = (state.get("interaction_summary") or "").strip()
     if not summary:
-        # Fallback：使用 final 前 200 字
         summary = (state.get("final") or "")[:200]
 
     async with AsyncSessionLocal() as db:
@@ -159,23 +168,29 @@ async def dispatch_outreach_node(state: AgentState) -> dict:
         )).scalars().all()
         inv_map = {inv.id: inv for inv in inv_rows}
 
-        drafts_written = 0
+        drafts_by_kind: dict[str, int] = {}
         for inv_id in investor_ids:
             inv = inv_map.get(inv_id)
             if not inv:
                 continue
-            for action in requests:
+            for action in target_items:
+                action_type = action.get("type")
+                rule = next((r for r in DISPATCH_RULES if r[0] == action_type), None)
+                if rule is None:
+                    continue
+                _, prompt_key, kind_label = rule
+                # 不同 prompt key 占位变量名不一样（meeting_request 用 action_title，
+                # investor_milestone 用 milestone_title）—— 用 dict union 双写兼容
+                variables = {
+                    "investor_name": inv.name,
+                    "investor_agency": (inv.agency or "").replace("{", "{{").replace("}", "}}"),
+                    "minutes_summary": summary.replace("{", "{{").replace("}", "}}"),
+                    "action_title": action["title"].replace("{", "{{").replace("}", "}}"),
+                    "milestone_title": action["title"].replace("{", "{{").replace("}", "}}"),
+                    "due_date": action["due_date"],
+                }
                 try:
-                    context = prompt_registry.get(
-                        "outreach_agent.meeting_request",
-                        variables={
-                            "investor_name": inv.name,
-                            "investor_agency": (inv.agency or "").replace("{", "{{").replace("}", "}}"),
-                            "minutes_summary": summary.replace("{", "{{").replace("}", "}}"),
-                            "action_title": action["title"].replace("{", "{{").replace("}", "}}"),
-                            "due_date": action["due_date"],
-                        },
-                    )
+                    context = prompt_registry.get(prompt_key, variables=variables)
                     msg = await skill_registry.call("Claude.生成内容", context=context, max_tokens=400)
                     msg = (msg or "").strip()
                     if not msg:
@@ -183,16 +198,16 @@ async def dispatch_outreach_node(state: AgentState) -> dict:
                     db.add(OutreachRecord(
                         investor_id=inv_id,
                         ir_id=state["ir_id"],
-                        type="milestone_message",  # 复用现有枚举，语义最近
+                        type="milestone_message",  # 复用现有枚举
                         content=msg,
                         status="draft",
                     ))
-                    drafts_written += 1
+                    drafts_by_kind[kind_label] = drafts_by_kind.get(kind_label, 0) + 1
                 except Exception as e:
-                    logger.warning("outreach meeting_request draft failed: %s", e)
+                    logger.warning("outreach %s draft failed: %s", action_type, e)
         await db.commit()
-    if drafts_written:
-        return {"skills_called": [f"Claude.生成内容(outreach_预约×{drafts_written})"]}
+    if drafts_by_kind:
+        return {"skills_called": [f"Claude.生成内容({k}×{n})" for k, n in drafts_by_kind.items()]}
     return {}
 
 
