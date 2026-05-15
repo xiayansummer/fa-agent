@@ -236,7 +236,7 @@ async def get_thread_state(
         return StateResponse(status="error", error=f"unknown task_type: {task_type}")
 
     config = {"configurable": {"thread_id": thread_id}}
-    state = graph.get_state(config)
+    state = await graph.aget_state(config)
     values = state.values or {}
 
     # If next includes "review" node and draft is present → waiting_review
