@@ -111,8 +111,22 @@ async def extract_action_items_node(state: AgentState) -> dict:
             variables={"full_minutes": escaped, "today_iso": today_iso},
         )
         raw = await skill_registry.call("Claude.生成内容", context=context, max_tokens=600)
-        import json as _json
-        parsed = _json.loads((raw or "").strip())
+        import json as _json, re as _re
+        cleaned = (raw or "").strip()
+        # LLM 偶尔会用 ```json ... ``` 包裹，剥掉
+        m = _re.search(r"```(?:json)?\s*(\[.*\])\s*```", cleaned, _re.DOTALL)
+        if m:
+            cleaned = m.group(1)
+        # 兜底：在文本中提取最外层数组
+        if not cleaned.startswith("["):
+            m2 = _re.search(r"\[.*\]", cleaned, _re.DOTALL)
+            if m2:
+                cleaned = m2.group(0)
+        try:
+            parsed = _json.loads(cleaned)
+        except Exception as je:
+            logger.warning("action_items JSON parse failed: %s; raw=%r", je, raw[:300])
+            return {"action_items": []}
         if not isinstance(parsed, list):
             parsed = []
         # 限 5 条 + 字段校验
