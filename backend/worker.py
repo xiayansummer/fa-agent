@@ -64,7 +64,11 @@ def dispatch_outreach(self, ir_id: int, investor_ids: list,
                       action_items: list, summary: str):
     """异步执行 outreach 草稿生成 —— 把会议纪要 workflow 的 dispatch_outreach 节点
     从主路径剥离，让 review approved 后立即 done，draft 在后台慢慢生成。"""
-    import asyncio
+    import asyncio, os, sys
+    # prefork 子进程 sys.path 不含 backend，task 执行点 explicit 加
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
     from agent.dispatch_outreach import dispatch_outreach_impl
     try:
         return asyncio.run(dispatch_outreach_impl(
