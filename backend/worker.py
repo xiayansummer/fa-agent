@@ -14,6 +14,7 @@ celery_app = Celery(
 celery_app.conf.task_routes = {
     "worker.trigger_daily_push": {"queue": "content"},
     "worker.trigger_milestone_outreach": {"queue": "content"},
+    "worker.dispatch_outreach": {"queue": "content"},
 }
 
 celery_app.conf.beat_schedule = {
@@ -47,6 +48,24 @@ def trigger_daily_push(self):
         resp.raise_for_status()
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300, max_retries=3)
+
+
+@celery_app.task(name="worker.dispatch_outreach", bind=True, max_retries=2)
+def dispatch_outreach(self, ir_id: int, investor_ids: list,
+                      action_items: list, summary: str):
+    """异步执行 outreach 草稿生成 —— 把会议纪要 workflow 的 dispatch_outreach 节点
+    从主路径剥离，让 review approved 后立即 done，draft 在后台慢慢生成。"""
+    import asyncio
+    from agent.dispatch_outreach import dispatch_outreach_impl
+    try:
+        return asyncio.run(dispatch_outreach_impl(
+            ir_id=int(ir_id),
+            investor_ids=list(investor_ids or []),
+            action_items=list(action_items or []),
+            summary=summary or "",
+        ))
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=120)
 
 
 @celery_app.task(name="worker.trigger_milestone_outreach", bind=True)

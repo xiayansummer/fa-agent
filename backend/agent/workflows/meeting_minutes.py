@@ -139,76 +139,28 @@ async def extract_action_items_node(state: AgentState) -> dict:
 
 
 async def dispatch_outreach_node(state: AgentState) -> dict:
-    """Outreach Agent：对 meeting_request 和 investor_milestone 两类 action 生成
-    草稿写 OutreachRecord(draft)。前者是预约线下，后者是提前 ping 投资人 milestone。"""
+    """瞬时派发 celery 任务做 outreach 草稿生成。主 workflow 不再等 LLM，
+    review approved 后立刻 done；draft 在后台异步生成（每次 ~30-60s × N action）。"""
     if state.get("ir_action") == "rejected":
         return {}
     items = state.get("action_items") or []
-    if not items:
-        return {}
     investor_ids = state.get("investor_ids") or []
-    if not investor_ids:
+    if not items or not investor_ids:
         return {}
-    # 两类各起草
-    DISPATCH_RULES = [
-        ("meeting_request",     "outreach_agent.meeting_request",     "outreach_预约"),
-        ("investor_milestone",  "outreach_agent.investor_milestone",  "outreach_milestone提醒"),
-    ]
-    target_items = [it for it in items if it.get("type") in {r[0] for r in DISPATCH_RULES}]
-    if not target_items:
-        return {}
-
     summary = (state.get("interaction_summary") or "").strip()
     if not summary:
         summary = (state.get("final") or "")[:200]
-
-    async with AsyncSessionLocal() as db:
-        inv_rows = (await db.execute(
-            select(Investor).where(Investor.id.in_(investor_ids))
-        )).scalars().all()
-        inv_map = {inv.id: inv for inv in inv_rows}
-
-        drafts_by_kind: dict[str, int] = {}
-        for inv_id in investor_ids:
-            inv = inv_map.get(inv_id)
-            if not inv:
-                continue
-            for action in target_items:
-                action_type = action.get("type")
-                rule = next((r for r in DISPATCH_RULES if r[0] == action_type), None)
-                if rule is None:
-                    continue
-                _, prompt_key, kind_label = rule
-                # 不同 prompt key 占位变量名不一样（meeting_request 用 action_title，
-                # investor_milestone 用 milestone_title）—— 用 dict union 双写兼容
-                variables = {
-                    "investor_name": inv.name,
-                    "investor_agency": (inv.agency or "").replace("{", "{{").replace("}", "}}"),
-                    "minutes_summary": summary.replace("{", "{{").replace("}", "}}"),
-                    "action_title": action["title"].replace("{", "{{").replace("}", "}}"),
-                    "milestone_title": action["title"].replace("{", "{{").replace("}", "}}"),
-                    "due_date": action["due_date"],
-                }
-                try:
-                    context = prompt_registry.get(prompt_key, variables=variables)
-                    msg = await skill_registry.call("Claude.生成内容", context=context, max_tokens=400)
-                    msg = (msg or "").strip()
-                    if not msg:
-                        continue
-                    db.add(OutreachRecord(
-                        investor_id=inv_id,
-                        ir_id=state["ir_id"],
-                        type="milestone_message",  # 复用现有枚举
-                        content=msg,
-                        status="draft",
-                    ))
-                    drafts_by_kind[kind_label] = drafts_by_kind.get(kind_label, 0) + 1
-                except Exception as e:
-                    logger.warning("outreach %s draft failed: %s", action_type, e)
-        await db.commit()
-    if drafts_by_kind:
-        return {"skills_called": [f"Claude.生成内容({k}×{n})" for k, n in drafts_by_kind.items()]}
-    return {}
+    try:
+        from worker import celery_app
+        celery_app.send_task(
+            "worker.dispatch_outreach",
+            args=[state["ir_id"], investor_ids, items, summary],
+            queue="content",
+        )
+        return {"skills_called": ["Celery.dispatch_outreach(async)"]}
+    except Exception as e:
+        logger.warning("celery dispatch_outreach send failed: %s", e)
+        return {}
 
 
 async def save_node(state: AgentState) -> dict:
