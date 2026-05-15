@@ -15,7 +15,13 @@ async def review_node(state: AgentState) -> dict:
         "task_type": state.get("task_type"),
     })
     action = ir_decision["action"]
-    final = ir_decision.get("final", state.get("draft")) if action != "rejected" else None
+    if action == "rejected":
+        final = None
+    else:
+        # 注意：HTTP 层 review.final 默认空字符串而非 None，所以这里要做空串兜底，
+        # 否则 dict.get 拿到 "" 不会触发 fallback，save_node 落库 content 为空。
+        provided = (ir_decision.get("final") or "").strip()
+        final = provided or state.get("draft")
     return {
         "ir_action": action,
         "final": final,
