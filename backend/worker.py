@@ -1,3 +1,12 @@
+import os
+import sys
+
+# Celery prefork 子进程默认 sys.path 不含 backend 目录，导致 task 里
+# from agent.xxx 报 ModuleNotFoundError。worker.py 这里强制加进去。
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+
 from celery import Celery
 from celery.schedules import crontab
 from config import settings
