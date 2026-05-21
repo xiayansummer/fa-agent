@@ -48,7 +48,8 @@ Page<CalendarData, {}>({
   },
 
   onShow() {
-    // tab 切换回来时刷新今日数据（可能其他 tab 改了）
+    // 从其他页（如 calendar-day dismiss）/ tab 切换回来时同步刷新月 dot + 今日
+    this._loadMonth();
     this._loadToday();
   },
 
