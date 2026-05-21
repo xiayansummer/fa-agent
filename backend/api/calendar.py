@@ -13,6 +13,7 @@ from models.investors import Investor
 from models.interaction_logs import InteractionLog
 from models.ir_users import IRUser
 from models.calendar_dismissals import CalendarDismissal
+from models.outreach_records import OutreachRecord
 from auth.jwt import get_current_ir
 from redis_client import get_redis
 from services import crypto_service
@@ -41,6 +42,18 @@ class DailyCalendarOut(BaseModel):
 class MonthCalendarOut(BaseModel):
     month: str          # "YYYY-MM"
     days: dict[str, list[str]]  # date_str → list of unique event types
+
+
+async def _my_investor_ids(db: AsyncSession, ir_id: int) -> list[int]:
+    """该 IR 「自己的」投资人 = 有过 interaction_logs 或 outreach_records 的 investor_id 并集。
+    用于隔离不同 IR 的日历视图，避免 birthday/followup 等事件全表泄漏。"""
+    rows_a = (await db.execute(
+        select(InteractionLog.investor_id).where(InteractionLog.ir_id == ir_id).distinct()
+    )).scalars().all()
+    rows_b = (await db.execute(
+        select(OutreachRecord.investor_id).where(OutreachRecord.ir_id == ir_id).distinct()
+    )).scalars().all()
+    return list({*rows_a, *rows_b})
 
 
 async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
@@ -217,8 +230,16 @@ async def get_daily_calendar(
     ir_id = current_ir["ir_id"]
     cal_date = date.fromisoformat(target_date) if target_date else date.today()
 
-    result = await db.execute(select(Investor).where(Investor.is_active == True))
-    investors = result.scalars().all()
+    my_ids = await _my_investor_ids(db, ir_id)
+    investors = []
+    if my_ids:
+        result = await db.execute(
+            select(Investor).where(
+                Investor.is_active == True,
+                Investor.id.in_(my_ids),
+            )
+        )
+        investors = result.scalars().all()
 
     # 当日的 action-item followup（来自 interaction_logs.next_followup_at 命中）
     from datetime import datetime as _dt
@@ -292,8 +313,17 @@ async def get_month_calendar(
     month_num = first_day.month
     _, last_day_num = _calendar.monthrange(year, month_num)
 
-    result = await db.execute(select(Investor).where(Investor.is_active == True))
-    investors = result.scalars().all()
+    ir_id = current_ir["ir_id"]
+    my_ids = await _my_investor_ids(db, ir_id)
+    investors = []
+    if my_ids:
+        result = await db.execute(
+            select(Investor).where(
+                Investor.is_active == True,
+                Investor.id.in_(my_ids),
+            )
+        )
+        investors = result.scalars().all()
 
     # 当月范围内的腾讯会议
     meetings = await _load_tencent_meetings(db, current_ir["ir_id"])
