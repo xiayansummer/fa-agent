@@ -43,6 +43,6 @@ class Settings(BaseSettings):
     token_encrypt_key: str  # Fernet key (44 base64 chars); see .env.example for generation
 
     tencent_mcp_url: str = "https://mcp.meeting.tencent.com/mcp/wemeet-open/v1"
-    tencent_mcp_skill_version: str = "v1.0.7"
+    tencent_mcp_skill_version: str = "v1.1.0"  # v1.0.7 被腾讯服务端硬拦截
 
 settings = Settings()
