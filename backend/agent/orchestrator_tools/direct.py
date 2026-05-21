@@ -87,7 +87,10 @@ TOOLS = [
             "name": "cancel_tencent_meeting",
             "description": (
                 "取消已预订的腾讯会议（不可逆！）。规则：用户首次说取消时**不要直接调用**——先在回复里复述会议主题/会议号，"
-                "等用户下一轮明确「确认」「是」「ok」等之后再调用。若用户直接给出明确 meeting_id 且语气坚定，可一次性调用。"
+                "等用户下一轮明确「确认」「是」「ok」等之后再调用。"
+                "**meeting_id 用 schedule_tencent_meeting 返回的 meeting_id（18-20 位长数字），**"
+                "**不要传 meeting_code（9-10 位短号，给人看的）**。如果只能拿到短号，"
+                "工具内部会自动 fallback 到 list 查询，但优先用长 ID。"
             ),
             "parameters": {
                 "type": "object",
@@ -394,21 +397,37 @@ async def _list_upcoming_meetings(args: dict, ctx: ToolCtx) -> dict:
 
 
 async def _cancel_meeting(args: dict, ctx: ToolCtx) -> dict:
-    mid = (args.get("meeting_id") or "").strip()
-    if not mid:
+    mid_input = (args.get("meeting_id") or "").strip().replace(" ", "")
+    if not mid_input:
         return {"error": "meeting_id 不能为空"}
     client = await _get_tencent_client(ctx)
     if client is None:
         return {"error": "IR 未配置腾讯会议 token"}
+    # LLM 经常把 meeting_code（9-10 位短号，给人看的）当成 meeting_id 传过来。
+    # 真正的 meeting_id 是 18~20 位长数字。短号场景下先查 list 拿真 id。
+    real_mid = mid_input
+    if len(mid_input) <= 10 and mid_input.isdigit():
+        try:
+            upcoming = await client.list_upcoming_meetings()
+            match = next(
+                (m for m in upcoming if str(m.get("meeting_code") or m.get("meeting_id_str") or "") == mid_input),
+                None,
+            )
+            if match and match.get("meeting_id"):
+                real_mid = str(match["meeting_id"])
+            else:
+                return {"error": f"未找到会议号 {mid_input} 对应的会议（可能已结束或非本人预订）"}
+        except Exception as e:
+            return {"error": f"查询会议失败：{e}"}
     try:
-        await client.cancel_meeting(meeting_id=mid, reason_detail=args.get("reason_detail", "") or "")
+        await client.cancel_meeting(meeting_id=real_mid, reason_detail=args.get("reason_detail", "") or "")
     except TencentAuthError:
         return {"error": "腾讯会议 token 已失效"}
     except TencentToolError as e:
         return {"error": f"腾讯会议返回错误：{e}"}
     except Exception as e:
         return {"error": f"调用失败：{e}"}
-    return {"ok": True, "meeting_id": mid}
+    return {"ok": True, "meeting_id": real_mid, "input_was_code": real_mid != mid_input}
 
 
 async def _search_investor(args: dict, ctx: ToolCtx) -> dict:
