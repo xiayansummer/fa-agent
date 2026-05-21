@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, Literal
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -54,3 +54,18 @@ async def list_history(
     stmt = stmt.order_by(OutreachRecord.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+@router.delete("/{record_id}")
+async def delete_outreach(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """删除某条 outreach 记录。只能删自己的。"""
+    rec = await db.get(OutreachRecord, record_id)
+    if not rec or rec.ir_id != current_ir["ir_id"]:
+        raise HTTPException(status_code=404, detail="record not found")
+    await db.delete(rec)
+    await db.commit()
+    return {"ok": True, "deleted_id": record_id}

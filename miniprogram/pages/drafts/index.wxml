@@ -17,16 +17,23 @@
     <view
       wx:for="{{records}}"
       wx:key="id"
-      class="card"
-      data-item="{{item}}"
-      bindtap="onItemTap">
-      <view class="card-head">
-        <view class="type-tag">{{item.typeLabel}}</view>
-        <view wx:if="{{item.unboundLabel}}" class="unbound-tag">{{item.unboundLabel}}</view>
-        <view class="status" style="color: {{item.statusColor}}">{{item.statusLabel}}</view>
-        <view class="date">{{item.createdLabel}}</view>
+      class="swipe-row">
+      <view class="delete-bg" catchtap="onDeleteTap" data-id="{{item.id}}">删除</view>
+      <view
+        class="card {{swipeOpenId === item.id ? 'swiped' : ''}}"
+        data-item="{{item}}"
+        data-id="{{item.id}}"
+        bindtap="onItemTap"
+        bindtouchstart="onTouchStart"
+        bindtouchend="onTouchEnd">
+        <view class="card-head">
+          <view class="type-tag">{{item.typeLabel}}</view>
+          <view wx:if="{{item.unboundLabel}}" class="unbound-tag">{{item.unboundLabel}}</view>
+          <view class="status" style="color: {{item.statusColor}}">{{item.statusLabel}}</view>
+          <view class="date">{{item.createdLabel}}</view>
+        </view>
+        <view class="content-preview">{{item.contentPreview}}{{item.content.length > 80 ? '...' : ''}}</view>
       </view>
-      <view class="content-preview">{{item.contentPreview}}{{item.content.length > 80 ? '...' : ''}}</view>
     </view>
   </view>
 </view>

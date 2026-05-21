@@ -16,6 +16,7 @@ interface PageData {
   filterType: string;  // '' | 'meeting_minutes' | 'industry_report' | ...
   filterTypes: { value: string; label: string }[];
   loading: boolean;
+  swipeOpenId: number;  // 当前露出删除按钮的卡片 id（0 = 无）
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -51,7 +52,11 @@ Page<PageData, {}>({
       { value: 'milestone_message', label: '节点关怀' },
     ],
     loading: false,
+    swipeOpenId: 0,
   },
+
+  _touchStartX: 0,
+  _touchingId: 0,
 
   onLoad() {
     this._load();
@@ -85,12 +90,56 @@ Page<PageData, {}>({
 
   onItemTap(e: WechatMiniprogram.TouchEvent) {
     const item = e.currentTarget.dataset.item as any;
-    // 简化：弹 modal 显示完整内容
+    // 当前有露删除按钮的卡片，点 card 先收起，不弹 modal
+    if (this.data.swipeOpenId) {
+      this.setData({ swipeOpenId: 0 });
+      return;
+    }
     wx.showModal({
       title: `${item.typeLabel} · ${item.statusLabel}`,
       content: item.content || '（无内容）',
       showCancel: false,
       confirmText: '关闭',
     });
+  },
+
+  onTouchStart(e: WechatMiniprogram.TouchEvent) {
+    this._touchStartX = e.touches[0].clientX;
+    this._touchingId = Number(e.currentTarget.dataset.id);
+  },
+
+  onTouchEnd(e: WechatMiniprogram.TouchEvent) {
+    const dx = e.changedTouches[0].clientX - this._touchStartX;
+    const id = this._touchingId;
+    if (dx < -40) {
+      // 左滑超过阈值 → 露删除按钮
+      this.setData({ swipeOpenId: id });
+    } else if (dx > 40 && this.data.swipeOpenId === id) {
+      // 右滑收起
+      this.setData({ swipeOpenId: 0 });
+    }
+  },
+
+  async onDeleteTap(e: WechatMiniprogram.TouchEvent) {
+    const id = Number(e.currentTarget.dataset.id);
+    const { confirm } = await new Promise<{ confirm: boolean }>((resolve) => {
+      wx.showModal({
+        title: '删除这条记录？',
+        content: '删除后无法恢复。',
+        confirmText: '删除',
+        confirmColor: '#EF4444',
+        success: (r) => resolve({ confirm: !!r.confirm }),
+        fail: () => resolve({ confirm: false }),
+      });
+    });
+    if (!confirm) return;
+    try {
+      await api.del(`/api/outreach/${id}`);
+      this.setData({
+        records: this.data.records.filter((r) => r.id !== id),
+        swipeOpenId: 0,
+      });
+      wx.showToast({ title: '已删除', icon: 'success' });
+    } catch (e) { /* api toast */ }
   },
 });
