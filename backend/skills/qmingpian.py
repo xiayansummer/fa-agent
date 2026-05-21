@@ -678,12 +678,4 @@ async def qmingpian_export_ongoing_lunci(event_name: str = "") -> dict:
     return {"contacts": contacts, "count": len(contacts)}
 
 
-@skill(registry=skill_registry, name="企名片.导出机构详情",
-       version="1.0", timeout=15, retry=1)
-async def qmingpian_export_agency(jigou_id: str) -> dict:
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{BASE_URL}/Export/exportAgencyOpen",
-            data=_base({"jigou_id": jigou_id}),
-        )
-    return _check(resp).get("data", {})
+# 旧 stub 已废弃 —— 完整实现见上方 qmingpian_export_agency(agency_name)
