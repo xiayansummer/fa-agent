@@ -58,7 +58,7 @@ interface PageData {
   modalBody: string;
   modalAgentTitle: string;
   modalThreadId: string;
-  pendingFile?: PendingFile;
+  pendingFile: PendingFile | null;
 }
 
 Page<PageData, {}>({
@@ -72,7 +72,7 @@ Page<PageData, {}>({
     modalBody: '',
     modalAgentTitle: '',
     modalThreadId: '',
-    pendingFile: undefined,
+    pendingFile: null,
   },
 
   onLoad() {
@@ -192,7 +192,7 @@ Page<PageData, {}>({
     const text = this.data.input.trim();
     const pending = this.data.pendingFile;
     if (!text && !pending) return;
-    this.setData({ input: '', pendingFile: undefined });
+    this.setData({ input: '', pendingFile: null });
 
     // pendingFile 存在时：图片走缩略图，文档走 chip 文本
     const displayText = pending
@@ -479,7 +479,7 @@ Page<PageData, {}>({
   // ===== 文件上传 =====
 
   onClearPending() {
-    this.setData({ pendingFile: undefined });
+    this.setData({ pendingFile: null });
   },
 
   onPreviewImage(e: WechatMiniprogram.TouchEvent) {
