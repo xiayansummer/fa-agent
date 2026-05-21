@@ -1,8 +1,11 @@
 from __future__ import annotations
 import json
+import logging
 import httpx
 from typing import Optional
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class TencentAuthError(Exception):
@@ -21,6 +24,63 @@ _DEFAULT_CLIENT_INFO = {
     "model": "qwen3.6-plus",
 }
 
+# X-Skill-Version 候选列表 —— 腾讯偶尔硬拦截特定版本，自动探测哪个可用。
+_VERSION_CANDIDATES = ["v1.1.0", "v1.1.1", "v1.2.0", "v1.0.8", "v2.0.0"]
+_SKILL_VERSION_CACHE_KEY = "tencent:skill_version"
+_SKILL_VERSION_TTL = 86400  # 每天一次探测
+
+
+async def _is_version_rejected(text: str) -> bool:
+    return "已过期" in text or "强制拦截" in text
+
+
+async def _resolve_skill_version(token: str) -> str:
+    """每日首次时探测哪个 skill 版本可用，结果缓存 Redis 24h。
+    探测策略：先试 settings 默认值；被拒则按候选列表逐一探测；都不行就用 settings 默认硬扛。"""
+    try:
+        from redis_client import get_redis
+        redis = await get_redis()
+        cached = await redis.get(_SKILL_VERSION_CACHE_KEY)
+        if cached:
+            return cached
+    except Exception as e:
+        logger.warning("redis get skill_version cache failed: %s", e)
+        redis = None
+
+    seen: set[str] = set()
+    pool = [settings.tencent_mcp_skill_version, *_VERSION_CANDIDATES]
+    for v in pool:
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        body = {"jsonrpc": "2.0", "method": "tools/call",
+                "params": {"name": "convert_timestamp", "arguments": {"_client_info": _DEFAULT_CLIENT_INFO}},
+                "id": 1}
+        headers = {"Content-Type": "application/json",
+                   "X-Tencent-Meeting-Token": token,
+                   "X-Skill-Version": v}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(settings.tencent_mcp_url, json=body, headers=headers)
+            if resp.status_code != 200:
+                continue
+            if await _is_version_rejected(resp.text):
+                logger.info("tencent skill version %s rejected: %s", v, resp.text[:80])
+                continue
+        except Exception as e:
+            logger.warning("probe version %s failed: %s", v, e)
+            continue
+        logger.info("tencent skill version resolved: %s (cached 24h)", v)
+        if redis is not None:
+            try:
+                await redis.setex(_SKILL_VERSION_CACHE_KEY, _SKILL_VERSION_TTL, v)
+            except Exception:
+                pass
+        return v
+
+    # fallback：所有候选都不可用，硬扛 settings 默认；下次再探测
+    return settings.tencent_mcp_skill_version
+
 
 class TencentMeetingClient:
     """Per-IR Tencent Meeting MCP 客户端，stateless（每个请求独立）。"""
@@ -38,16 +98,30 @@ class TencentMeetingClient:
             "params": {"name": tool_name, "arguments": args},
             "id": 1,
         }
+        version = await _resolve_skill_version(self._token)
         headers = {
             "Content-Type": "application/json",
             "X-Tencent-Meeting-Token": self._token,
-            "X-Skill-Version": settings.tencent_mcp_skill_version,
+            "X-Skill-Version": version,
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(settings.tencent_mcp_url, json=body, headers=headers)
         if resp.status_code == 401:
             raise TencentAuthError("token 无效或已过期")
         resp.raise_for_status()
+        # 服务端再次硬拦截当前版本（理论上 _resolve 已过滤）→ 失效缓存重试一次
+        if await _is_version_rejected(resp.text):
+            try:
+                from redis_client import get_redis
+                _r = await get_redis()
+                await _r.delete(_SKILL_VERSION_CACHE_KEY)
+            except Exception:
+                pass
+            new_v = await _resolve_skill_version(self._token)
+            if new_v != version:
+                headers["X-Skill-Version"] = new_v
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(settings.tencent_mcp_url, json=body, headers=headers)
         data = resp.json()
         if "error" in data.get("result", {}):
             err = data["result"]["error"]
