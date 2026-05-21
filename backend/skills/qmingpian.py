@@ -555,6 +555,87 @@ async def qmingpian_export_person(person_name: str = "", expected_agency: str = 
     return result
 
 
+@skill(registry=skill_registry, name="企名片.导出机构详情",
+       version="1.0", timeout=15, retry=1)
+async def qmingpian_export_agency(agency_name: str) -> dict:
+    """导出机构详情（xlsx）。
+
+    返回 3 个 sheet：
+    - 机构详情 → tags
+    - 机构纪要 → summaries: list of {content, creator, created_at}
+    - 历史推荐 → history: list of {event, industry, round, status, feedback,
+                                   recommended_investor, contact_time}
+    """
+    import io
+    from openpyxl import load_workbook
+
+    if not agency_name:
+        raise ValueError("agency_name 不能为空")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{BASE_URL}/Export/exportAgencyOpen",
+            data=_base({"agency_name": agency_name}),
+        )
+
+    ct = resp.headers.get("content-type", "")
+    if not ct.startswith("application/vnd.openxmlformats"):
+        try:
+            d = resp.json()
+            raise ValueError(f"企名片 agency export error: status={d.get('status')} message={d.get('message')}")
+        except Exception:
+            raise ValueError(f"企名片 agency export 失败，返回非 xlsx: {ct}")
+
+    wb = load_workbook(io.BytesIO(resp.content), read_only=True)
+    result: dict = {"tags": [], "summaries": [], "history": []}
+
+    for sn in wb.sheetnames:
+        ws = wb[sn]
+        rows = list(ws.iter_rows(values_only=True))
+        if len(rows) < 2:
+            continue
+
+        if sn == "机构详情":
+            # row 1 = header（机构标签）, row 2 = value（"|" 或空格分隔，或多列）
+            if len(rows) >= 3 and rows[2]:
+                vals = []
+                for c in rows[2]:
+                    if c:
+                        vals.append(str(c).strip())
+                if vals:
+                    # 可能是单个 cell 用分隔符
+                    if len(vals) == 1 and ("|" in vals[0] or "," in vals[0]):
+                        result["tags"] = [t.strip() for t in vals[0].replace(",", "|").split("|") if t.strip()]
+                    else:
+                        result["tags"] = vals
+
+        elif sn == "机构纪要":
+            for row in rows[2:]:
+                if not row or all(c in (None, "") for c in row):
+                    continue
+                result["summaries"].append({
+                    "content": str(row[0]) if len(row) > 0 and row[0] else "",
+                    "creator": str(row[1]) if len(row) > 1 and row[1] else "",
+                    "created_at": str(row[2]) if len(row) > 2 and row[2] else "",
+                })
+
+        elif sn == "历史推荐":
+            for row in rows[2:]:
+                if not row or all(c in (None, "") for c in row):
+                    continue
+                result["history"].append({
+                    "event": str(row[0]) if len(row) > 0 and row[0] else "",
+                    "industry": str(row[1]) if len(row) > 1 and row[1] else "",
+                    "round": str(row[2]) if len(row) > 2 and row[2] else "",
+                    "status": str(row[3]) if len(row) > 3 and row[3] else "",
+                    "feedback": str(row[4]) if len(row) > 4 and row[4] else "",
+                    "recommended_investor": str(row[5]) if len(row) > 5 and row[5] else "",
+                    "contact_time": str(row[6]) if len(row) > 6 and row[6] else "",
+                })
+
+    return result
+
+
 @skill(registry=skill_registry, name="企名片.导出ongoing项目对接",
        version="1.0", timeout=15, retry=1)
 async def qmingpian_export_ongoing_lunci(event_name: str = "") -> dict:

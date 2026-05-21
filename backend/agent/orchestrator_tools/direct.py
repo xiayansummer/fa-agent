@@ -28,6 +28,7 @@ from skills.qmingpian import (
     qmingpian_add_agency_file,
     qmingpian_add_person_card,
     qmingpian_upload_file,
+    qmingpian_export_agency,
 )
 
 
@@ -243,6 +244,23 @@ TOOLS = [
                 "type": "object",
                 "properties": {"keywords": {"type": "string"}},
                 "required": ["keywords"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_agency_detail",
+            "description": (
+                "查机构现有详情：标签、纪要、历史推荐记录。当 IR 说「看一下 X 的现有纪要」「X 机构最近有什么进展」"
+                "「X 都对接过哪些项目」等意图时调用。返回 tags / summaries / history。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agency": {"type": "string", "description": "机构名（同 add_agency_summary 的 agency）"},
+                },
+                "required": ["agency"],
             },
         },
     },
@@ -834,6 +852,27 @@ async def _search_agency(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "count": len(items), "results": items}
 
 
+async def _get_agency_detail(args: dict, ctx: ToolCtx) -> dict:
+    agency = (args.get("agency") or "").strip()
+    if not agency:
+        return {"error": "agency 不能为空"}
+    try:
+        data = await qmingpian_export_agency(agency)
+    except Exception as e:
+        return {"error": f"企名片机构详情导出失败：{e}"}
+    summaries = data.get("summaries") or []
+    history = data.get("history") or []
+    return {
+        "ok": True,
+        "agency": agency,
+        "tags": data.get("tags") or [],
+        "summary_count": len(summaries),
+        "summaries": summaries[:10],   # 限 10 条避免压 LLM context
+        "history_count": len(history),
+        "history": history[:10],
+    }
+
+
 async def _add_agency_summary(args: dict, ctx: ToolCtx) -> dict:
     agency = (args.get("agency") or "").strip()
     summary = (args.get("summary") or "").strip()
@@ -950,6 +989,7 @@ _DISPATCH = {
     "record_interaction":        _record_interaction,
     "list_ongoing_project_contacts": _list_ongoing,
     "search_agency":             _search_agency,
+    "get_agency_detail":         _get_agency_detail,
     "add_agency_summary":        _add_agency_summary,
     "add_agency":                _add_agency,
     "add_agency_file":           _add_agency_file,
