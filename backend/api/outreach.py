@@ -12,7 +12,7 @@ router = APIRouter()
 
 class OutreachOut(BaseModel):
     id: int
-    investor_id: int
+    investor_id: Optional[int] = None  # 会议纪要可能无关联投资人
     type: str
     channel: str
     content: Optional[str] = None
