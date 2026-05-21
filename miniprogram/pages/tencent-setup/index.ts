@@ -37,18 +37,19 @@ Page<PageData, {}>({
   },
 
   async onTest() {
-    if (!this.data.token.trim()) {
-      wx.showToast({ title: '请先填 token', icon: 'none' });
-      return;
-    }
     this.setData({ testing: true, testResult: '' });
     try {
-      const res = await api.post<{ ok: boolean; detail?: string }>('/api/me/tencent/test', {
-        token: this.data.token.trim(),
-      }, { silent: true });
+      const body: any = {};
+      const inputTok = this.data.token.trim();
+      if (inputTok) body.token = inputTok;
+      const res = await api.post<{ ok: boolean; detail?: string }>(
+        '/api/me/tencent/test', body, { silent: true }
+      );
       this.setData({
         testOk: res.ok,
-        testResult: res.ok ? '✓ token 可用' : `✗ ${res.detail || 'token 无效'}`,
+        testResult: res.ok
+          ? (inputTok ? '✓ 新 token 可用' : '✓ 已保存 token 可用')
+          : `✗ ${res.detail || 'token 无效'}`,
       });
     } catch (e: any) {
       this.setData({ testOk: false, testResult: `✗ ${e?.detail || '测试失败'}` });

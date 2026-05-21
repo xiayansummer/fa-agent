@@ -109,20 +109,24 @@ Page<PageData, {}>({
   },
 
   async onTencentTest() {
-    if (!this.data.tencentTokenEdit.trim()) {
+    const inputTok = this.data.tencentTokenEdit.trim();
+    const bound = (this.data.user as any)?.tencent_bound;
+    if (!inputTok && !bound) {
       wx.showToast({ title: '请先填 token', icon: 'none' });
       return;
     }
     this.setData({ tencentTesting: true, tencentTestResult: '' });
     try {
+      const body: any = {};
+      if (inputTok) body.token = inputTok;
       const res = await api.post<{ ok: boolean; detail?: string }>(
-        '/api/me/tencent/test',
-        { token: this.data.tencentTokenEdit.trim() },
-        { silent: true }
+        '/api/me/tencent/test', body, { silent: true }
       );
       this.setData({
         tencentTestOk: res.ok,
-        tencentTestResult: res.ok ? '✓ token 可用' : `✗ ${res.detail || 'token 无效'}`,
+        tencentTestResult: res.ok
+          ? (inputTok ? '✓ 新 token 可用' : '✓ 已保存 token 可用')
+          : `✗ ${res.detail || 'token 无效'}`,
       });
     } catch (e: any) {
       this.setData({ tencentTestOk: false, tencentTestResult: `✗ ${e?.detail || '测试失败'}` });

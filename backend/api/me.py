@@ -80,6 +80,10 @@ async def update_me(
 class TencentTokenRequest(BaseModel):
     token: str
 
+
+class TencentTestRequest(BaseModel):
+    token: Optional[str] = None  # 不传 → 用 db 里已保存的 token 验
+
 class TencentTestResponse(BaseModel):
     ok: bool
     detail: str = ""
@@ -110,11 +114,25 @@ async def configure_tencent(
 
 @router.post("/tencent/test", response_model=TencentTestResponse)
 async def test_tencent_token(
-    body: TencentTokenRequest,
-    _: dict = Depends(get_current_ir),
+    body: TencentTestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
 ):
-    """仅验证不入库（保存前预检）。"""
-    client = TencentMeetingClient(token=body.token)
+    """验证 token 是否可用（不入库）。
+    - 传 token：验那个新 token（保存前预检）
+    - 不传 token：用 db 里已保存的 token 验（已配置状态下复测）"""
+    token = (body.token or "").strip()
+    if not token:
+        user = (await db.execute(
+            select(IRUser).where(IRUser.id == current_ir["ir_id"])
+        )).scalar_one_or_none()
+        if not user or not user.tencent_meeting_token_encrypted:
+            return TencentTestResponse(ok=False, detail="尚未保存 token")
+        try:
+            token = crypto_service.decrypt(user.tencent_meeting_token_encrypted)
+        except Exception:
+            return TencentTestResponse(ok=False, detail="已保存 token 解密失败，请重新填写")
+    client = TencentMeetingClient(token=token)
     ok = await client.verify_token()
     return TencentTestResponse(
         ok=ok,
