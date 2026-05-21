@@ -94,6 +94,7 @@ page { background: var(--bg-base); }
   line-height: 1;
 }
 .plus-btn:active { background: #e5e7eb; }
+.plus-btn.has-pending { background: #6366f1; color: #fff; }
 .input {
   flex: 1; height: 72rpx;
   background: #f5f5f7; border-radius: 36rpx;
