@@ -3,7 +3,7 @@ import { formatRelative } from '../../utils/time';
 
 interface OutreachRecord {
   id: number;
-  investor_id: number;
+  investor_id: number | null;
   type: string;
   channel: string;
   content?: string;
@@ -70,6 +70,7 @@ Page<PageData, {}>({
         statusColor: STATUS_COLORS[r.status] || '#999',
         createdLabel: formatRelative(r.created_at),
         contentPreview: (r.content || '').slice(0, 80),
+        unboundLabel: r.investor_id == null ? '无关联' : '',
       }));
       this.setData({ records: enriched });
     } finally {

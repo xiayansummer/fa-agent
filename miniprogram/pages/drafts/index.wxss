@@ -39,6 +39,13 @@ page { background: var(--bg-base); }
   border-radius: 6rpx;
   font-size: 22rpx;
 }
+.unbound-tag {
+  background: #fef3c7;
+  color: #c2410c;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+  font-size: 22rpx;
+}
 .status { font-size: 22rpx; font-weight: 600; }
 .date {
   flex: 1; text-align: right;

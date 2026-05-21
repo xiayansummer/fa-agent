@@ -22,6 +22,7 @@
       bindtap="onItemTap">
       <view class="card-head">
         <view class="type-tag">{{item.typeLabel}}</view>
+        <view wx:if="{{item.unboundLabel}}" class="unbound-tag">{{item.unboundLabel}}</view>
         <view class="status" style="color: {{item.statusColor}}">{{item.statusLabel}}</view>
         <view class="date">{{item.createdLabel}}</view>
       </view>

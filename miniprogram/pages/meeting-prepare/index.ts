@@ -116,6 +116,7 @@ Page<PageData, {}>({
   },
 
   async _runWithTencent(tencentMeetingId: string) {
+    if (!(await this._confirmUnboundIfNeeded())) return;
     this.setData({ loading: true });
     try {
       const res = await api.post<{ thread_id: string }>('/api/agent/run', {
@@ -132,6 +133,7 @@ Page<PageData, {}>({
   // === 模式 2：上传音频 ===
   async onUploadTap() {
     if (this.data.loading) return;
+    if (!(await this._confirmUnboundIfNeeded())) return;
 
     const fileRes = await new Promise<any>((resolve) => {
       wx.chooseMessageFile({
@@ -210,6 +212,7 @@ Page<PageData, {}>({
       wx.showToast({ title: '请粘贴文字稿', icon: 'none' });
       return;
     }
+    if (!(await this._confirmUnboundIfNeeded())) return;
 
     this.setData({ loading: true });
     try {
@@ -222,6 +225,22 @@ Page<PageData, {}>({
     } catch (e) {/* toast handled by api layer */} finally {
       this.setData({ loading: false });
     }
+  },
+
+  /** 启动 workflow 前的软提示：没关联投资人就弹确认。已选则直接 true。 */
+  async _confirmUnboundIfNeeded(): Promise<boolean> {
+    if ((this.data.investorIds || []).length > 0) return true;
+    const res = await new Promise<{ confirm: boolean }>((resolve) => {
+      wx.showModal({
+        title: '未关联投资人',
+        content: '本次纪要将归档到「无关联」类，可在「我的草稿历史」找到，但不会自动写入投资人互动。是否继续？',
+        confirmText: '继续',
+        cancelText: '返回',
+        success: (r) => resolve({ confirm: !!r.confirm }),
+        fail: () => resolve({ confirm: false }),
+      });
+    });
+    return res.confirm;
   },
 
   _goChat(threadId: string) {
