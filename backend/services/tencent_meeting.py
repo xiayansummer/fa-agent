@@ -157,12 +157,13 @@ class TencentMeetingClient:
             "end_time": end_time,
             "page_size": page_size,
         })
-        return result.get("meeting_info_list", [])
+        # value 可能是 None（不是 missing），dict.get default 不生效；用 or [] 兜底
+        return (result.get("meeting_info_list") if result else None) or []
 
     async def list_upcoming_meetings(self) -> list[dict]:
         """即将开始/进行中的会议。"""
         result = await self._call("get_user_meetings", {})
-        return result.get("meeting_info_list", [])
+        return (result.get("meeting_info_list") if result else None) or []
 
     async def get_records_list(self, meeting_id: str) -> list[dict]:
         """会议的录制文件列表（拿 record_file_id 用）。"""
