@@ -6,7 +6,7 @@ class OutreachRecord(Base):
     __tablename__ = "outreach_records"
 
     id          = Column(Integer, primary_key=True, autoincrement=True)
-    investor_id = Column(Integer, nullable=False, index=True)
+    investor_id = Column(Integer, nullable=True, index=True)  # 会议纪要 / 行业推送可能没投资人关联
     ir_id       = Column(Integer, nullable=False, index=True)
     type        = Column(Enum("meeting_minutes","industry_report","daily_push","milestone_message"))
     channel     = Column(Enum("wechat","email","qmingpian"), default="wechat")

@@ -196,34 +196,44 @@ async def save_node(state: AgentState) -> dict:
         except Exception:
             continue
     async with AsyncSessionLocal() as db:
-        if state.get("ir_action") != "rejected" and investor_ids:
-            inv_rows = (await db.execute(
-                select(Investor).where(Investor.id.in_(investor_ids))
-            )).scalars().all()
-            inv_map = {inv.id: inv for inv in inv_rows}
+        if state.get("ir_action") != "rejected":
+            outreach_status = "approved" if state.get("ir_action") in ("approved", "modified") else "draft"
+            if investor_ids:
+                inv_rows = (await db.execute(
+                    select(Investor).where(Investor.id.in_(investor_ids))
+                )).scalars().all()
+                inv_map = {inv.id: inv for inv in inv_rows}
 
-            for inv_id in investor_ids:
-                db.add(InteractionLog(
-                    investor_id=inv_id,
-                    ir_id=state["ir_id"],
-                    type="meeting",
-                    occurred_at=occurred_at,
-                    summary=short_summary,            # Content Agent 二次提炼的短摘要
-                    raw_content=state.get("transcript") or "",
-                    next_followup_at=next_followup_dt,  # 最早 action item 的 due_date
-                    agent_generated=True,
-                ))
+                for inv_id in investor_ids:
+                    db.add(InteractionLog(
+                        investor_id=inv_id,
+                        ir_id=state["ir_id"],
+                        type="meeting",
+                        occurred_at=occurred_at,
+                        summary=short_summary,
+                        raw_content=state.get("transcript") or "",
+                        next_followup_at=next_followup_dt,
+                        agent_generated=True,
+                    ))
+                    db.add(OutreachRecord(
+                        investor_id=inv_id,
+                        ir_id=state["ir_id"],
+                        type="meeting_minutes",
+                        content=final_content,
+                        status=outreach_status,
+                    ))
+                    inv = inv_map.get(inv_id)
+                    if inv and (not inv.last_interaction_at or occurred_at > inv.last_interaction_at):
+                        inv.last_interaction_at = occurred_at
+            else:
+                # 无关联投资人也要存档，让 IR 能在草稿历史找到
                 db.add(OutreachRecord(
-                    investor_id=inv_id,
+                    investor_id=None,
                     ir_id=state["ir_id"],
                     type="meeting_minutes",
                     content=final_content,
-                    status="approved" if state.get("ir_action") in ("approved", "modified") else "draft",
+                    status=outreach_status,
                 ))
-                # 推进 investor.last_interaction_at（仅当新事件更晚）
-                inv = inv_map.get(inv_id)
-                if inv and (not inv.last_interaction_at or occurred_at > inv.last_interaction_at):
-                    inv.last_interaction_at = occurred_at
         db.add(AgentTrace(
             thread_id=state["thread_id"],
             ir_id=state["ir_id"],
