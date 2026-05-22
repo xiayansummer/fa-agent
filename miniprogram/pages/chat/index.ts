@@ -30,6 +30,8 @@ interface Message {
   inlineEditable?: boolean;  // 短内容才允许内联编辑
   /** Orchestrator 简报卡片的原始 action 列表（actions 里 data-action=orch_N 时按 index 查这个） */
   orchActions?: OrchAction[];
+  /** 该 thread 的 task_type（来自 waiting_review 事件），决定审核时是否要让 IR 选投资人 */
+  taskType?: string;
 }
 
 interface CalendarEvent {
@@ -58,6 +60,7 @@ interface PageData {
   modalBody: string;
   modalAgentTitle: string;
   modalThreadId: string;
+  modalTaskType: string;
   pendingFile: PendingFile | null;
 }
 
@@ -72,6 +75,7 @@ Page<PageData, {}>({
     modalBody: '',
     modalAgentTitle: '',
     modalThreadId: '',
+    modalTaskType: '',
     pendingFile: null,
   },
 
@@ -336,6 +340,7 @@ Page<PageData, {}>({
         ],
         threadId,
         inlineEditable: isShort,
+        taskType: event.task_type,
       });
     } else if (event.type === 'done') {
       this._replaceMessage(thinkingId, {
@@ -365,6 +370,7 @@ Page<PageData, {}>({
           agent: 'content',
           title: '内容 Agent · 待审核',
           body: event.draft,
+          taskType: event.task_type,
           actions: [
             { action: 'approve', label: '通过', primary: true },
             { action: 'modify', label: isShort ? '调整' : '展开编辑' },
@@ -446,6 +452,7 @@ Page<PageData, {}>({
         modalAgentTitle: msg.title || '内容 Agent',
         modalBody: msg.body,
         modalThreadId: msg.threadId,
+        modalTaskType: msg.taskType || '',
       });
       return;
     }
@@ -457,10 +464,20 @@ Page<PageData, {}>({
       reject: 'rejected',
     };
 
+    // approve / modify 时如果是会议纪要 → 让 IR 选关联投资人
+    let investorIds: number[] | null = null;
+    if (['approve', 'modify'].includes(action) && msg.taskType === 'meeting_minutes') {
+      investorIds = await this._pickInvestorsForReview();
+      if (investorIds === null) return; // 用户取消整个流程
+    }
+
     try {
       const body: any = { action: actionMap[action] };
       if (action === 'modify' && final !== undefined) {
         body.final = final;
+      }
+      if (investorIds && investorIds.length > 0) {
+        body.investor_ids = investorIds;
       }
       await api.post(`/api/agent/${msg.threadId}/review`, body);
 
@@ -609,17 +626,59 @@ Page<PageData, {}>({
       approve: 'approved',
       reject: 'rejected',
       modify: 'modified',
-      modify_and_approve: 'approved',  // 同 approved 但带修改后的内容
+      modify_and_approve: 'approved',
     };
+
+    // 通过类动作 + 会议纪要 → 让 IR 选关联投资人
+    let investorIds: number[] | null = null;
+    if (['approve', 'modify', 'modify_and_approve'].includes(action)
+        && this.data.modalTaskType === 'meeting_minutes') {
+      investorIds = await this._pickInvestorsForReview();
+      if (investorIds === null) return;
+    }
 
     try {
       const body: any = { action: actionMap[action] };
       if (final) body.final = final;
+      if (investorIds && investorIds.length > 0) body.investor_ids = investorIds;
       await api.post(`/api/agent/${threadId}/review`, body);
       this.setData({ modalVisible: false });
-      // 等 WS done 推回更新卡片
     } catch (err: any) {
       wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
     }
+  },
+
+  /** meeting_minutes 审核时让 IR 关联投资人；返回 null 表示用户取消整个 review。 */
+  async _pickInvestorsForReview(): Promise<number[] | null> {
+    let investors: { id: number; name: string; agency?: string }[] = [];
+    try {
+      investors = await api.get<any[]>('/api/investors?limit=8', { silent: true });
+    } catch (_e) { investors = []; }
+
+    if (!investors.length) {
+      const r = await new Promise<boolean>((resolve) => {
+        wx.showModal({
+          title: '没有可关联投资人',
+          content: '你的投资人库为空，本次将作为「无关联」纪要归档。继续？',
+          confirmText: '继续', cancelText: '返回',
+          success: (rr) => resolve(rr.confirm),
+          fail: () => resolve(false),
+        });
+      });
+      return r ? [] : null;
+    }
+
+    const items = investors.map((i) => `${i.name}${i.agency ? ' · ' + i.agency : ''}`);
+    items.push('— 暂不关联 —');
+    const tapIndex = await new Promise<number | null>((resolve) => {
+      wx.showActionSheet({
+        itemList: items,
+        success: (r) => resolve(r.tapIndex),
+        fail: () => resolve(null),
+      });
+    });
+    if (tapIndex === null) return null; // 取消
+    if (tapIndex === items.length - 1) return []; // 暂不关联
+    return [investors[tapIndex].id];
   },
 });

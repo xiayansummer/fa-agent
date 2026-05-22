@@ -88,6 +88,7 @@ class RunRequest(BaseModel):
 class ReviewRequest(BaseModel):
     action: IrAction
     final: Optional[str] = None
+    investor_ids: Optional[list[int]] = None  # 审核时补传关联投资人（meeting_minutes 用）
 
 
 @router.post("/run")
@@ -190,6 +191,8 @@ async def submit_review(
         "action": review.action,
         "final": review.final or "",
     }
+    if review.investor_ids:
+        ir_decision["investor_ids"] = review.investor_ids
     background_tasks.add_task(resume, task_type, thread_id, ir_decision)
     return {"status": "resumed"}
 

@@ -22,7 +22,9 @@ async def review_node(state: AgentState) -> dict:
         # 否则 dict.get 拿到 "" 不会触发 fallback，save_node 落库 content 为空。
         provided = (ir_decision.get("final") or "").strip()
         final = provided or state.get("draft")
-    return {
-        "ir_action": action,
-        "final": final,
-    }
+    out: dict = {"ir_action": action, "final": final}
+    # IR 在审核时补传的投资人关联 → 覆盖 state.investor_ids，
+    # 让后续 save_node / dispatch_outreach 拿到真投资人列表
+    if ir_decision.get("investor_ids"):
+        out["investor_ids"] = list(ir_decision["investor_ids"])
+    return out
