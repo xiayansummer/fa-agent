@@ -416,8 +416,30 @@ Page<PageData, {}>({
     }
   },
 
-  onClearCard() {
-    this.setData({ 'form.business_card_url': '' });
+  async onClearCard() {
+    const ok = await new Promise<boolean>(resolve => {
+      wx.showModal({
+        title: '删除这张名片？',
+        content: '名片将从本地清空。已绑定到企名片的名片需要在 PC 端单独处理。',
+        confirmText: '删除',
+        confirmColor: '#EF4444',
+        success: r => resolve(r.confirm),
+        fail: () => resolve(false),
+      });
+    });
+    if (!ok) return;
+
+    // 新建模式 / 还没保存过：只清前端 form
+    if (!this.data.isEdit || !this.data.investorId) {
+      this.setData({ 'form.business_card_url': '' });
+      return;
+    }
+    // 编辑模式：立刻调 API 清本地 DB
+    try {
+      await api.put(`/api/investors/${this.data.investorId}`, { business_card_url: null });
+      this.setData({ 'form.business_card_url': '' });
+      wx.showToast({ title: '已删除', icon: 'success' });
+    } catch (e) {/* api toast */}
   },
 
   async onDelete() {
