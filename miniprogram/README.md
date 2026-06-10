@@ -12,6 +12,16 @@
 3. AppID 填测试号或公司企业版 AppID（替换 `project.config.json` 里的 `wxTESTAPPID000000000`）
 4. 编译运行
 
+## 环境配置
+
+小程序 API 地址在 `config/env.ts` 里统一配置：
+
+- `development` → `http://127.0.0.1:8000`
+- `staging` → `https://agentapi-staging.investarget.com`
+- `production` → `https://agentapi.investarget.com`
+
+切换环境时只改 `config/env.ts` 的 `ENV` 常量，不要在页面或 service 里硬编码 API 地址。
+
 ## 项目结构
 
 - `pages/` 页面

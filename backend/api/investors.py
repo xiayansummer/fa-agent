@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, delete as sa_delete
 from typing import Optional
 from datetime import datetime
 from datetime import date as date_type
 from pydantic import BaseModel
 from database import get_db
 from models.investors import Investor
+from models.ir_investor_membership import IrInvestorMembership
 from auth.jwt import get_current_ir
 from models.ir_users import IRUser
+from api.calendar import _my_investor_ids
 from skills.qmingpian import (
     qmingpian_search_person,
     qmingpian_add_person,
@@ -147,13 +149,22 @@ async def list_investors(
     industry: Optional[str] = Query(None, description="行业筛选，匹配 industry_tags"),
     limit: Optional[int] = Query(None, ge=1, le=1000, description="可选限制返回条数；不传则全部"),
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_ir),
+    current_ir: dict = Depends(get_current_ir),
 ):
     """
-    "我的库" 视图：本地 investors 表里 is_active=true 的投资人，按 last_interaction_at 倒序。
+    "我的库" 视图：当前 IR 拥有的、active 的投资人，按 last_interaction_at 倒序。
+    归属由 ir_investor_membership 表（"+ 新增 / + 加入" 写入）+ 旧 logs 推导兜底。
     默认返回全部；可选 limit 限制条数。搜索请用 /api/investors/search?q=。
     """
-    stmt = select(Investor).where(Investor.is_active == True)
+    # IR 隔离：只返回当前 IR 的库
+    my_ids = await _my_investor_ids(db, current_ir["ir_id"])
+    if not my_ids:
+        return InvestorListOut(items=[], total=0)
+
+    stmt = select(Investor).where(
+        Investor.is_active == True,
+        Investor.id.in_(my_ids),
+    )
     if stage:
         stmt = stmt.where(Investor.stage_pref.contains(f'"{stage}"'))
     if industry:
@@ -174,16 +185,20 @@ async def list_investors(
 async def search_investors(
     q: str = Query(..., min_length=1, description="搜索关键字（企名片全库）"),
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_ir),
+    current_ir: dict = Depends(get_current_ir),
 ):
     """
-    在企名片全库搜索。返回结果中标注哪些已加入本地库（local_id 非 null）。
-    点击未加入的条目时，前端调 POST /api/investors { qmingpian_person_id } 加入本地。
+    在企名片全库搜索。返回结果中 `local_id` 表示「在当前 IR 的库」（既本地有又我加入了）；
+    本地存在但当前 IR 没加入时仍显示 "+ 加入"（local_id=null）。
+    点击 "+ 加入" 时，前端调 POST /api/investors { qmingpian_person_id }。
     """
     try:
         hits = await qmingpian_search_person(q)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"企名片搜索失败: {e}")
+
+    # 当前 IR 拥有的投资人集合（用于过滤 local_id 的赋值）
+    my_ids_set = set(await _my_investor_ids(db, current_ir["ir_id"]))
 
     # 查本地 investors 表里这些 person_id 的本地 id + avatar + 名片
     person_ids = [h.get("person_id") for h in hits if h.get("person_id")]
@@ -230,11 +245,16 @@ async def search_investors(
             if ind and ind not in seen:
                 industries.append(ind)
                 seen.add(ind)
+        # local_id 语义：「在**当前 IR**的库」——本地有 + 当前 IR 已加入。
+        # 本地存在但 IR 没加入 → 前端仍走 "+ 加入" 路径（POST 会处理"只补 membership"）。
+        local_id_for_me = (
+            local_info["id"] if (local_info and local_info["id"] in my_ids_set) else None
+        )
         items.append(SearchHitOut(
             qmingpian_person_id=pid,
             name=h.get("name", ""),
             agency=h.get("agency"),
-            local_id=local_info["id"] if local_info else None,
+            local_id=local_id_for_me,
             avatar_url=(local_info["avatar_url"] if local_info else None) or qm_icon,
             business_card_url=(local_info["business_card_url"] if local_info else None) or qm_card,
             position=h.get("zhiwu") or None,
@@ -454,11 +474,15 @@ async def enrich_from_qmingpian(
 async def get_investor(
     investor_id: int,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_ir),
+    current_ir: dict = Depends(get_current_ir),
 ):
     result = await db.execute(select(Investor).where(Investor.id == investor_id))
     investor = result.scalar_one_or_none()
     if not investor:
+        raise HTTPException(status_code=404, detail="投资人不存在")
+    # 隔离：不在当前 IR 的库里 → 404（避免泄漏其他 IR 持有的投资人详情）
+    my_ids = await _my_investor_ids(db, current_ir["ir_id"])
+    if investor.id not in my_ids:
         raise HTTPException(status_code=404, detail="投资人不存在")
     return investor
 
@@ -467,23 +491,33 @@ async def get_investor(
 async def create_investor(
     body: InvestorCreate,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_ir),
+    current_ir: dict = Depends(get_current_ir),
 ):
     """
-    新增：
-    - 若传了 qmingpian_person_id（来自搜索结果），跳过 addPerson，直接本地建关联记录；
-    - 否则先调企名片 addPerson 拿 person_id，再本地建。
-    重名（已有同 person_id 的本地记录）→ 400。
+    新增/加入：
+    - 若传了 qmingpian_person_id 且本地已存在该 Investor：
+      - 若当前 IR 已加入 → 400 「已在你的库中」
+      - 若本地有但当前 IR 没加入 → 只插 membership 后返回（"+ 加入别人创建的本地记录"路径）
+    - 否则先（若需要）调企名片 addPerson 拿 person_id，本地新建，并插 membership。
     """
     person_id = body.qmingpian_person_id
 
     if person_id:
         # 检查本地是否已有
-        existing = await db.execute(
+        existing_inv = (await db.execute(
             select(Investor).where(Investor.qmingpian_person_id == person_id)
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="该投资人已在你的库中")
+        )).scalar_one_or_none()
+        if existing_inv:
+            my_ids = await _my_investor_ids(db, current_ir["ir_id"])
+            if existing_inv.id in my_ids:
+                raise HTTPException(status_code=400, detail="该投资人已在你的库中")
+            # 本地有但当前 IR 还没加入 → 只补一条 membership，返回已有记录
+            db.add(IrInvestorMembership(ir_id=current_ir["ir_id"], investor_id=existing_inv.id))
+            await db.commit()
+            await db.refresh(existing_inv)
+            out = InvestorOut.model_validate(existing_inv)
+            out.qmingpian_warnings = []
+            return out
     else:
         # 调企名片新增（一次性带上扩展字段 + tag，省去后续单独 updatePersonTag）
         try:
@@ -528,7 +562,7 @@ async def create_investor(
     if body.business_card_url and person_id:
         try:
             ir_row = (await db.execute(
-                select(IRUser).where(IRUser.id == _["ir_id"])
+                select(IRUser).where(IRUser.id == current_ir["ir_id"])
             )).scalar_one_or_none()
             create_name = ((ir_row.qmingpian_username if ir_row and ir_row.qmingpian_username
                             else (ir_row.name if ir_row else ""))
@@ -566,6 +600,9 @@ async def create_investor(
     db.add(investor)
     await db.commit()
     await db.refresh(investor)
+    # 自动把新建的投资人加入当前 IR 的库（关键修复：之前没这步，新增的投资人在"我的库"里看不到）
+    db.add(IrInvestorMembership(ir_id=current_ir["ir_id"], investor_id=investor.id))
+    await db.commit()
     out = InvestorOut.model_validate(investor)
     out.qmingpian_warnings = warnings
     return out
@@ -587,6 +624,10 @@ async def update_investor(
     result = await db.execute(select(Investor).where(Investor.id == investor_id))
     investor = result.scalar_one_or_none()
     if not investor:
+        raise HTTPException(status_code=404, detail="投资人不存在")
+    # 隔离：只有库里持有的 IR 可编辑（防止改到不属于自己的投资人信息）
+    my_ids = await _my_investor_ids(db, current_ir["ir_id"])
+    if investor.id not in my_ids:
         raise HTTPException(status_code=404, detail="投资人不存在")
 
     updates = body.model_dump(exclude_unset=True)
@@ -704,15 +745,25 @@ async def update_investor(
 async def delete_investor(
     investor_id: int,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_ir),
+    current_ir: dict = Depends(get_current_ir),
 ):
     """
-    软删除（仅本地隐藏，企名片记录不动）。
+    从「我的库」移除（只删 membership 行；其他 IR 仍能保留该投资人）。
+    注意：本接口不再做全局 is_active=False（旧行为是任意 IR 一删全员看不到，会泄漏跨 IR 操作）。
+    若该投资人和你有 InteractionLog / OutreachRecord，因为 _my_investor_ids 的兜底推导，
+    可能仍出现在你的库——彻底移除需要清除相关记录。
     """
-    result = await db.execute(select(Investor).where(Investor.id == investor_id))
-    investor = result.scalar_one_or_none()
+    investor = (await db.execute(
+        select(Investor).where(Investor.id == investor_id)
+    )).scalar_one_or_none()
     if not investor or not investor.is_active:
         raise HTTPException(status_code=404, detail="投资人不存在或已删除")
-    investor.is_active = False
+    # 删除当前 IR 在该投资人上的归属
+    await db.execute(
+        sa_delete(IrInvestorMembership).where(
+            IrInvestorMembership.ir_id == current_ir["ir_id"],
+            IrInvestorMembership.investor_id == investor_id,
+        )
+    )
     await db.commit()
     return {"deleted": True}

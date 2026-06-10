@@ -6,25 +6,26 @@ page { background: var(--bg-base); }
 
 .search-bar {
   margin-bottom: 16rpx;
-  position: relative;
   display: flex;
   align-items: center;
+  gap: 16rpx;
 }
 .search-input {
   flex: 1;
   background: #fff; padding: 20rpx 24rpx; border-radius: 12rpx;
   font-size: 28rpx;
 }
+/* 注意：之前用 position: absolute 叠在 input 上，WeChat 的原生 <input> 会
+   吃掉这块区域的 tap，× 点不响应。改成 flex 兄弟元素，自己占空间，点击稳定。 */
 .search-clear {
-  position: absolute;
-  right: 24rpx;
-  width: 40rpx; height: 40rpx;
-  line-height: 40rpx;
+  flex-shrink: 0;
+  width: 56rpx; height: 56rpx;
+  line-height: 56rpx;
   text-align: center;
   color: var(--text-secondary);
   background: #e5e5ea;
   border-radius: 50%;
-  font-size: 24rpx;
+  font-size: 28rpx;
 }
 
 .search-hint {

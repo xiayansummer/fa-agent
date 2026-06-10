@@ -25,7 +25,7 @@
         data-id="{{item.id}}"
         bindtap="onItemTap"
         bindtouchstart="onTouchStart"
-        bindtouchend="onTouchEnd">
+        bindtouchmove="onTouchMove">
         <view class="card-head">
           <view class="type-tag">{{item.typeLabel}}</view>
           <view wx:if="{{item.unboundLabel}}" class="unbound-tag">{{item.unboundLabel}}</view>

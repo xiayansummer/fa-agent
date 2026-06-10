@@ -13,6 +13,7 @@ from models.outreach_records import OutreachRecord
 from services import crypto_service
 from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
 from skills.qmingpian import qmingpian_export_ongoing_lunci
+from harness.skill_registry import skill_registry
 
 from .base import ToolCtx, start_workflow
 
@@ -93,6 +94,33 @@ TOOLS = [
                     "start_date": {"type": "string", "description": "YYYY-MM-DD，默认本周一"},
                     "end_date":   {"type": "string", "description": "YYYY-MM-DD，默认今天"},
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "summarize_document",
+            "description": (
+                "总结/分析用户上传的文档（PDF / docx / txt / md）。"
+                "当 IR 上传文档（消息以「[IR 已上传文档 url=... 文件名=...]」开头）"
+                "并要求摘要/总结/概要/分析时调本工具——"
+                "⚠️ **不要用 start_meeting_minutes_workflow**（那个是给音频/会议转录的，"
+                "把 PDF 喂进去会被纪要 prompt 当成『不是投资人会议』拒掉）。\n"
+                "返回 summary 字段是 LLM 生成的中文摘要，可直接转述给 IR。"
+                "如果 doc 是扫描件 PDF（图片型）会返回 error，可建议 IR 转文字版。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_url": {"type": "string", "description": "文档 URL（IR 上传后系统给出的 url 参数）"},
+                    "filename": {"type": "string", "description": "文件名（含扩展名，如 xx.pdf），用于识别格式"},
+                    "question": {
+                        "type": "string",
+                        "description": "IR 的具体诉求（如「重点讲技术路线」「列出商业模式要点」），默认「请用中文 300 字左右总结要点」",
+                    },
+                },
+                "required": ["file_url"],
             },
         },
     },
@@ -337,11 +365,45 @@ async def _weekly_review(args: dict, ctx: ToolCtx) -> dict:
     }
 
 
+async def _summarize_document(args: dict, ctx: ToolCtx) -> dict:
+    file_url = (args.get("file_url") or "").strip()
+    filename = (args.get("filename") or "").strip()
+    question = (args.get("question") or "").strip() or "请用中文 300 字左右总结要点"
+    if not file_url:
+        return {"error": "file_url 不能为空"}
+    try:
+        extracted = await skill_registry.call("文档.提取文本", url=file_url, filename=filename)
+    except Exception as e:
+        return {"error": f"文档解析失败：{e}"}
+    text = extracted.get("text") or ""
+    if not text:
+        return {"error": "提取到的文本为空（可能是扫描件 PDF / 图片型 PDF，无法直接读字。建议 IR 转成文字版或粘贴关键内容。）"}
+    truncated_note = "\n\n[提示：原文较长，仅取了前部分内容]" if extracted.get("truncated") else ""
+    prompt = (
+        f"以下是用户上传的文档「{filename or '未命名'}」的提取文本。\n"
+        f"用户的诉求是：{question}\n\n"
+        f"=== 文档内容 开始 ===\n{text}\n=== 文档内容 结束 ===\n\n"
+        f"请基于上述内容回应用户诉求，中文回答，结构清晰（用要点列表或小标题）。"
+    )
+    try:
+        summary = await skill_registry.call("Claude.生成内容", context=prompt, max_tokens=2048)
+    except Exception as e:
+        return {"error": f"生成摘要失败：{e}"}
+    return {
+        "ok": True,
+        "filename": filename or "未命名",
+        "doc_chars": extracted.get("chars"),
+        "truncated": extracted.get("truncated", False),
+        "summary": (summary or "").strip() + truncated_note,
+    }
+
+
 _DISPATCH = {
     "start_meeting_minutes_workflow": _meeting_minutes,
     "start_daily_push_workflow":      _daily_push,
     "prepare_meeting_briefing":       _prepare_briefing,
     "weekly_review":                  _weekly_review,
+    "summarize_document":             _summarize_document,
 }
 
 

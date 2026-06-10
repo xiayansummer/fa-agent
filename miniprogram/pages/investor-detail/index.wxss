@@ -70,9 +70,10 @@ page { background: var(--bg-base); }
 
 .interaction { padding: 16rpx 0; border-bottom: 1rpx solid var(--border-light); }
 .interaction:last-child { border-bottom: none; }
-.i-head { display: flex; gap: 12rpx; margin-bottom: 6rpx; }
+.i-head { display: flex; align-items: center; gap: 12rpx; margin-bottom: 6rpx; }
 .i-date { color: var(--text-secondary); font-size: 22rpx; font-family: monospace; }
 .i-type { font-size: 22rpx; color: var(--agent-content); }
+.i-del { margin-left: auto; font-size: 22rpx; color: #EF4444; padding: 4rpx 12rpx; }
 .i-summary { font-size: 26rpx; line-height: 1.6; }
 
 .empty { text-align: center; padding: 32rpx 0; color: var(--text-secondary); font-size: 24rpx; }

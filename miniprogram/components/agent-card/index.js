@@ -22,6 +22,11 @@ Component({
     'body': function(newBody) {
       if (!this.data.editing) this.setData({ editText: newBody });
     },
+    'showStatus': function(status) {
+      // 审核完成（已通过/已拒绝）后退出编辑态并清掉 submitting，
+      // 否则编辑区不会随 showStatus 隐藏，按钮会永远卡在"提交中..."
+      if (status) this.setData({ editing: false, submitting: false });
+    },
   },
   methods: {
     onAction(e) {

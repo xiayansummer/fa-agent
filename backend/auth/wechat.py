@@ -1,8 +1,8 @@
 import logging
 import base64
 import json
+import time
 import httpx
-from typing import Optional
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 from config import settings
@@ -54,3 +54,20 @@ def decrypt_user_data(encrypted_data: str, iv: str, session_key: str) -> dict:
     plaintext = unpadder.update(padded) + unpadder.finalize()
 
     return json.loads(plaintext)
+
+
+def validate_watermark(data: dict, max_age_seconds: int = 600) -> None:
+    watermark = data.get("watermark")
+    if not isinstance(watermark, dict):
+        raise ValueError("missing WeChat watermark")
+
+    if watermark.get("appid") != settings.wechat_appid:
+        raise ValueError("WeChat watermark appid mismatch")
+
+    timestamp = watermark.get("timestamp")
+    if not isinstance(timestamp, int):
+        raise ValueError("invalid WeChat watermark timestamp")
+
+    now = int(time.time())
+    if timestamp > now + 60 or now - timestamp > max_age_seconds:
+        raise ValueError("expired WeChat encrypted payload")

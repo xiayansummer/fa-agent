@@ -15,6 +15,8 @@ from models.interaction_logs import InteractionLog
 from models.outreach_records import OutreachRecord
 from models.agent_traces import AgentTrace
 from models.agent_feedback import AgentFeedback
+from models.calendar_dismissals import CalendarDismissal
+from models.ir_investor_membership import IrInvestorMembership
 
 config = context.config
 if config.config_file_name is not None:

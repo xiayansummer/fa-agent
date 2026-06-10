@@ -1,0 +1,46 @@
+<view class="form">
+  <view class="field">
+    <view class="label">标题</view>
+    <input class="input" value="{{title}}" bindinput="onTitleInput" placeholder="如：前滩见投资人" />
+  </view>
+
+  <view class="field">
+    <view class="label">日期</view>
+    <picker mode="date" value="{{date}}" bindchange="onDateChange">
+      <view class="picker-val">{{date || '选择日期'}}</view>
+    </picker>
+  </view>
+
+  <view class="field">
+    <view class="label">开始时间</view>
+    <view class="time-row">
+      <picker mode="time" value="{{startTime}}" bindchange="onStartChange">
+        <view class="picker-val">{{startTime || '全天（不设时间）'}}</view>
+      </picker>
+      <view wx:if="{{startTime}}" class="clear-btn" catchtap="clearStart">清除</view>
+    </view>
+  </view>
+
+  <view class="field" wx:if="{{startTime}}">
+    <view class="label">结束时间</view>
+    <view class="time-row">
+      <picker mode="time" value="{{endTime}}" bindchange="onEndChange">
+        <view class="picker-val">{{endTime || '可选'}}</view>
+      </picker>
+      <view wx:if="{{endTime}}" class="clear-btn" catchtap="clearEnd">清除</view>
+    </view>
+  </view>
+
+  <view class="field">
+    <view class="label">地点</view>
+    <input class="input" value="{{location}}" bindinput="onLocationInput" placeholder="可选" />
+  </view>
+
+  <view class="field">
+    <view class="label">备注</view>
+    <textarea class="textarea" value="{{notes}}" bindinput="onNotesInput" placeholder="可选" auto-height />
+  </view>
+
+  <view class="save-btn {{saving ? 'disabled' : ''}}" bindtap="onSave">{{saving ? '保存中...' : '保存'}}</view>
+  <view wx:if="{{isEdit}}" class="delete-btn" bindtap="onDelete">删除此日程</view>
+</view>

@@ -6,6 +6,7 @@
     "pages/splash/index",
     "pages/bind-phone/index",
     "pages/calendar-day/index",
+    "pages/schedule-edit/index",
     "pages/investor-detail/index",
     "pages/investor-edit/index",
     "pages/interaction-new/index",
@@ -45,5 +46,10 @@
     ]
   },
   "style": "v2",
-  "sitemapLocation": "sitemap.json"
+  "sitemapLocation": "sitemap.json",
+  "networkTimeout": {
+    "request": 180000,
+    "uploadFile": 180000,
+    "downloadFile": 180000
+  }
 }

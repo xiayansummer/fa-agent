@@ -4,12 +4,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.ir_users import IRUser
 from models.investors import Investor
 from models.interaction_logs import InteractionLog
+from models.calendar_events import CalendarEventRow
 from services import crypto_service
 from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
 import httpx as _httpx
@@ -108,8 +109,12 @@ TOOLS = [
         "function": {
             "name": "search_investor",
             "description": (
-                "通过姓名/机构关键字搜索投资人。返回 investor_id (本地ID)、person_id、name、agency、position、in_my_library、familiarity。"
-                "当用户提到某投资人名字但你不知道 investor_id 时，**先调本工具拿 ID 再做其他操作**。"
+                "通过姓名/机构关键字搜索投资人（**本地表 + 企名片**合并）。"
+                "返回 investor_id (本地ID)、person_id、name、agency、position、in_my_library、familiarity。"
+                "当用户提到某投资人名字但你不知道 investor_id 时，**先调本工具拿 ID 再做其他操作**。\n"
+                "💡 **keywords 建议只传姓名**（如「许越」），命中后再人工判断。"
+                "加机构名作为关键字反而可能因企名片简称/工商全称差异（如「东莞科创」vs「东莞市科创资本投资管理有限公司」）"
+                "导致 0 命中，连本地存在的投资人也漏掉。同名候选多时，看返回 results 里的 agency 字段挑选即可。"
             ),
             "parameters": {
                 "type": "object",
@@ -268,11 +273,20 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "add_agency_summary",
-            "description": "为某机构写一条纪要保存到企名片机构详情。建议 50-300 字。当 IR 说「给 X 机构记一条纪要」时调用。",
+            "description": (
+                "为某机构写一条纪要保存到企名片机构详情。建议 50-300 字。当 IR 说「给 X 机构记一条纪要」时调用。\n"
+                "⚠️ 必须先调 search_agency 拿到企名片库里这个机构的**实际全称**再传入 agency 参数——"
+                "企名片库里很多机构存的是品牌简称（如「东莞科创」），不是工商注册全称（如「东莞市科创资本投资管理有限公司」）。"
+                "直接传 IR 口述/工商全称会返回 `60005: 机构不存在`，纪要写不进去。"
+                "**例外**：IR 明确给出的就是企名片里的简称、或刚通过 search_agency 已经确认过，可以直接调。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "agency": {"type": "string", "description": "机构名"},
+                    "agency": {
+                        "type": "string",
+                        "description": "机构名——必须是 search_agency 返回的精确全称，不是 IR 口述/工商注册名。",
+                    },
                     "summary": {"type": "string"},
                 },
                 "required": ["agency", "summary"],
@@ -333,6 +347,32 @@ TOOLS = [
                     "next_followup_at": {"type": "string"},
                 },
                 "required": ["investor_id", "type", "summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_calendar_event",
+            "description": (
+                "往当前 IR 的日历里加一条自由日程（如「明天下午1点前滩见投资人」「周五上午体检」）。"
+                "这是 IR 自己的待办/安排，不是腾讯视频会议——不要为这种需求调 schedule_tencent_meeting，"
+                "只有用户明确说要『开腾讯会议/视频会议/在线会议』时才用 schedule_tencent_meeting。"
+                "date 必填（YYYY-MM-DD）；start_time/end_time 选填（HH:MM，不传则全天）；"
+                "investor_id 选填（与某投资人相关时传，否则不传）；location/notes 选填。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title":       {"type": "string", "description": "日程标题，如『前滩见投资人』"},
+                    "date":        {"type": "string", "description": "日期 YYYY-MM-DD"},
+                    "start_time":  {"type": "string", "description": "开始时间 HH:MM，选填"},
+                    "end_time":    {"type": "string", "description": "结束时间 HH:MM，选填"},
+                    "investor_id": {"type": "integer", "description": "相关投资人 ID，选填"},
+                    "location":    {"type": "string", "description": "地点，选填"},
+                    "notes":       {"type": "string", "description": "备注，选填"},
+                },
+                "required": ["title", "date"],
             },
         },
     },
@@ -452,38 +492,69 @@ async def _search_investor(args: dict, ctx: ToolCtx) -> dict:
     keywords = (args.get("keywords") or "").strip()
     if not keywords:
         return {"error": "keywords 不能为空"}
+
+    # 1) 本地表按 name/agency LIKE 搜（必须有本地直搜路径——之前纯走企名片，
+    #    企名片对复合关键字「许越 东莞科创」返回 0 时本地存在的投资人也被漏掉，
+    #    agent 就回答「本地没有」）。每个关键字段必须命中 name 或 agency。
+    #    并且按当前 IR 的库隔离：不在 my_ids 的不返回为本地命中（避免泄漏跨 IR 投资人）。
+    from api.calendar import _my_investor_ids as _calc_my_ids
+    my_ids = set(await _calc_my_ids(ctx.db, ctx.ir_id))
+    local_rows = []
+    if my_ids:
+        terms = [t for t in keywords.split() if t]
+        stmt = select(Investor).where(
+            Investor.is_active == True,
+            Investor.id.in_(my_ids),
+        )
+        for term in terms:
+            like = f"%{term}%"
+            stmt = stmt.where(or_(Investor.name.like(like), Investor.agency.like(like)))
+        local_rows = (await ctx.db.execute(stmt.limit(20))).scalars().all()
+
+    # 2) 企名片搜索（拿外部库的候选）
     try:
-        hits = await qmingpian_search_person(keywords)
-    except Exception as e:
-        return {"error": f"企名片搜索失败：{e}"}
-    person_ids = [h.get("person_id") for h in hits if h.get("person_id")]
-    local_map: dict[str, Investor] = {}
-    if person_ids:
-        rows = (await ctx.db.execute(
-            select(Investor).where(
-                Investor.qmingpian_person_id.in_(person_ids),
-                Investor.is_active == True,
-            )
-        )).scalars().all()
-        for inv in rows:
-            local_map[inv.qmingpian_person_id] = inv
-    seen: set[str] = set()
-    items = []
-    for h in hits:
-        pid = h.get("person_id")
-        if not pid or pid in seen:
-            continue
-        seen.add(pid)
-        local = local_map.get(pid)
+        qm_hits = await qmingpian_search_person(keywords)
+    except Exception:
+        qm_hits = []
+
+    # 3) 合并：本地优先（in_my_library=True），企名片补 person_id 不重复的部分。
+    seen_pids: set[str] = set()
+    seen_keys: set[tuple[str, str]] = set()
+    items: list[dict] = []
+    for inv in local_rows:
+        pid = inv.qmingpian_person_id or ""
         items.append({
-            "investor_id": local.id if local else None,
-            "person_id": pid,
+            "investor_id": inv.id,
+            "person_id": pid or None,
+            "name": inv.name,
+            "agency": inv.agency or "",
+            "position": inv.position or "",
+            "in_my_library": True,
+            "familiarity": inv.familiarity,
+        })
+        if pid:
+            seen_pids.add(pid)
+        seen_keys.add((inv.name, inv.agency or ""))
+    for h in (qm_hits or []):
+        pid = h.get("person_id") or ""
+        key = (h.get("name", ""), h.get("agency", ""))
+        if pid and pid in seen_pids:
+            continue
+        if key in seen_keys:
+            continue
+        items.append({
+            "investor_id": None,
+            "person_id": pid or None,
             "name": h.get("name", ""),
             "agency": h.get("agency", ""),
             "position": h.get("zhiwu") or "",
-            "in_my_library": local is not None,
-            "familiarity": local.familiarity if local else None,
+            "in_my_library": False,
+            "familiarity": None,
         })
+        if pid:
+            seen_pids.add(pid)
+        seen_keys.add(key)
+
     return {"ok": True, "count": len(items), "results": items[:10]}
 
 
@@ -502,16 +573,39 @@ async def _set_familiarity(args: dict, ctx: ToolCtx) -> dict:
         return {"error": f"investor_id={inv_id} 不存在"}
     prev = inv.familiarity
     ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
-    if ir_row and ir_row.qmingpian_username and inv.qmingpian_person_id:
+
+    qmingpian_synced = False
+    qmingpian_warning = ""
+    if not (ir_row and ir_row.qmingpian_username):
+        qmingpian_warning = "当前 IR 未配置企名片账号，企名片侧未同步（仅本地生效）"
+    else:
+        # ⚠️ 不再要求 inv.qmingpian_person_id —— qmingpian add/update familiar 用 name+agency 索引，
+        # 不需要 person_id。之前的守卫会让 person_id 还没回填时的首次同步被**静默跳过**，
+        # 本地却写入返回 ok，agent 以为成功了，企名片实际没动。
+        # 另：local prev 推断的 add vs update 可能与 qmingpian 实际状态不一致（local 没记录但
+        # qmingpian 已存在），用错会被拒；所以 primary 失败时回退到另一个 fn 重试。
         try:
-            fn = qmingpian_update_familiar_person if prev else qmingpian_add_familiar_person
-            await fn(name=inv.name, agency=inv.agency or "", user_name=ir_row.qmingpian_username, level=level)
+            primary = qmingpian_update_familiar_person if prev else qmingpian_add_familiar_person
+            fallback = qmingpian_add_familiar_person if prev else qmingpian_update_familiar_person
+            try:
+                await primary(name=inv.name, agency=inv.agency or "",
+                              user_name=ir_row.qmingpian_username, level=level)
+            except Exception as e_primary:
+                logger.info("familiarity primary call failed, retry fallback: %s", e_primary)
+                await fallback(name=inv.name, agency=inv.agency or "",
+                               user_name=ir_row.qmingpian_username, level=level)
+            qmingpian_synced = True
         except Exception as e:
             logger.warning("familiarity sync to qmingpian failed: %s", e)
             return {"error": f"企名片同步失败：{e}"}
+
     inv.familiarity = level
     await ctx.db.commit()
-    return {"ok": True, "investor_id": inv_id, "name": inv.name, "level": level}
+    result = {"ok": True, "investor_id": inv_id, "name": inv.name, "level": level,
+              "qmingpian_synced": qmingpian_synced}
+    if qmingpian_warning:
+        result["warning"] = qmingpian_warning
+    return result
 
 
 async def _set_tags(args: dict, ctx: ToolCtx) -> dict:
@@ -881,13 +975,44 @@ async def _add_agency_summary(args: dict, ctx: ToolCtx) -> dict:
     ir_row = (await ctx.db.execute(select(IRUser).where(IRUser.id == ctx.ir_id))).scalar_one_or_none()
     if not ir_row or not ir_row.qmingpian_username:
         return {"error": "当前 IR 未配置企名片用户名"}
+
+    # 服务端兜底解析机构名：企名片要求精确名，名字差一个字（错别字/简称）写入会 60005
+    # 静默失败、纪要直接丢失（2026-06-10「上海联合 vs 上海联和」事故）。
+    # 这里统一 search 解析，并把最终落库全称回传——Agent 必须复述给 IR，IR 才有机会发现写错对象。
+    try:
+        hits = await qmingpian_search_agency(agency, num=5)
+    except Exception as e:
+        return {"error": f"企名片机构检索失败，纪要没有写入：{e}"}
+    hits = [h for h in (hits or []) if isinstance(h, str) and h.strip()]
+    if agency in hits:
+        resolved = agency
+    elif len(hits) == 1:
+        resolved = hits[0]
+    elif not hits:
+        return {"error": (
+            f"企名片库里搜不到「{agency}」，纪要没有写入。"
+            "请向 IR 确认机构名（注意错别字、简称/全称差异）后重试。"
+        )}
+    else:
+        return {
+            "error": f"「{agency}」在企名片匹配到多个机构，纪要没有写入。请把候选给 IR 确认后再调用。",
+            "candidates": hits[:5],
+        }
+
     try:
         await qmingpian_add_agency_summary(
-            agency=agency, summary=summary, user_name=ir_row.qmingpian_username,
+            agency=resolved, summary=summary, user_name=ir_row.qmingpian_username,
         )
     except Exception as e:
         return {"error": f"企名片写入机构纪要失败：{e}"}
-    return {"ok": True, "agency": agency, "summary_preview": summary[:60]}
+    return {
+        "ok": True,
+        "agency": resolved,
+        "input_agency": agency,
+        "resolved_differently": resolved != agency,
+        "summary_preview": summary[:60],
+        "note": "回复 IR 时必须复述已写入的机构全称（agency）；若与 IR 原话不同，要醒目指出，便于 IR 发现错别字或同名机构。",
+    }
 
 
 async def _add_agency(args: dict, ctx: ToolCtx) -> dict:
@@ -978,8 +1103,70 @@ async def _record_interaction(args: dict, ctx: ToolCtx) -> dict:
     return {"ok": True, "interaction_id": log.id, "investor_id": inv_id, "name": inv.name, "type": itype}
 
 
+async def _add_calendar_event(args: dict, ctx: ToolCtx) -> dict:
+    from datetime import date as _date
+    title = (args.get("title") or "").strip()
+    date_str = (args.get("date") or "").strip()
+    if not title or not date_str:
+        return {"error": "title 和 date 都必填"}
+    try:
+        ev_date = _date.fromisoformat(date_str)
+    except ValueError:
+        return {"error": f"date 格式无效（应为 YYYY-MM-DD）：{date_str}"}
+
+    def _norm_time(v):
+        v = (v or "").strip()
+        if not v:
+            return None
+        # 容忍 '1:00' / '13:00' / '13:00:00'
+        parts = v.split(":")
+        try:
+            h = int(parts[0]); m = int(parts[1]) if len(parts) > 1 else 0
+        except (ValueError, IndexError):
+            return None
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            return None
+        return f"{h:02d}:{m:02d}"
+
+    start_time = _norm_time(args.get("start_time"))
+    end_time = _norm_time(args.get("end_time"))
+
+    # investor_id 选填；若传则必须是「当前 IR 自己库里的」投资人（隔离）
+    inv_id = args.get("investor_id")
+    inv_name = ""
+    if inv_id:
+        inv = await _resolve_investor(ctx, inv_id)
+        if not inv:
+            return {"error": f"investor_id={inv_id} 不存在"}
+        inv_name = inv.name
+
+    row = CalendarEventRow(
+        ir_id=ctx.ir_id,
+        investor_id=inv_id or None,
+        title=title,
+        event_date=ev_date,
+        start_time=start_time,
+        end_time=end_time,
+        location=(args.get("location") or "").strip() or None,
+        notes=(args.get("notes") or "").strip() or None,
+        source="agent",
+    )
+    ctx.db.add(row)
+    await ctx.db.commit()
+    await ctx.db.refresh(row)
+    return {
+        "ok": True,
+        "event_id": row.id,
+        "title": title,
+        "date": date_str,
+        "start_time": start_time or "全天",
+        "investor_name": inv_name,
+    }
+
+
 _DISPATCH = {
     "schedule_tencent_meeting":  _schedule_meeting,
+    "add_calendar_event":        _add_calendar_event,
     "list_my_upcoming_meetings": _list_upcoming_meetings,
     "cancel_tencent_meeting":    _cancel_meeting,
     "search_investor":           _search_investor,

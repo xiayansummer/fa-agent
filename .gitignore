@@ -3,3 +3,8 @@ __pycache__/
 *.pyo
 .env
 .pytest_cache/
+miniprogram/project.private.config.json
+.DS_Store
+venv/
+node_modules/
+*.tgz

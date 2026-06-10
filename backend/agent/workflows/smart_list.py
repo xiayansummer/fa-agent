@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
@@ -14,6 +15,21 @@ from models.outreach_records import OutreachRecord
 from models.agent_traces import AgentTrace
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_code_fence(raw: str) -> str:
+    """剥掉 LLM 可能加的 ```json ... ``` 围栏，提取最外层 JSON 数组。
+    minimax 等模型常把 JSON 包在 markdown 代码块里，否则 json.loads 失败、
+    草稿直接显示原始 JSON 给 IR。"""
+    t = (raw or "").strip()
+    m = re.search(r"```(?:json)?\s*(\[.*\])\s*```", t, re.DOTALL)
+    if m:
+        return m.group(1)
+    if not t.startswith("["):
+        m2 = re.search(r"\[.*\]", t, re.DOTALL)
+        if m2:
+            return m2.group(0)
+    return t
 
 
 async def fetch_candidates_node(state: AgentState) -> dict:
@@ -55,7 +71,7 @@ async def rank_node(state: AgentState) -> dict:
 async def format_list_node(state: AgentState) -> dict:
     """Parse ranked JSON and format as human-readable draft for IR review."""
     try:
-        items = json.loads(state.get("draft") or "[]")
+        items = json.loads(_strip_code_fence(state.get("draft") or "[]"))
     except (json.JSONDecodeError, TypeError):
         logger.warning("smart_list format_list_node: failed to parse draft as JSON, thread_id=%s", state.get("thread_id"))
         return {}

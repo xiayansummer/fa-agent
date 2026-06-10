@@ -1,8 +1,10 @@
 import * as storage from './utils/storage';
+import { appConfig } from './config/env';
 
 App<IAppOption>({
   globalData: {
-    apiBase: 'https://agentapi.investarget.com',
+    apiBase: appConfig.apiBase,
+    env: appConfig.env,
   },
   onLaunch() {
     // 检查是否已登录
@@ -17,5 +19,6 @@ App<IAppOption>({
 interface IAppOption {
   globalData: {
     apiBase: string;
+    env: string;
   };
 }

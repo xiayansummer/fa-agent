@@ -2,6 +2,10 @@ import { api } from '../../services/api';
 import { wsManager, type WSEvent } from '../../services/ws';
 import { formatDate } from '../../utils/time';
 import { mdToHtml } from '../../utils/markdown';
+import * as storage from '../../utils/storage';
+
+/** 本地会话持久化：最多存这么多条，防超 wx 单 key 1MB 限制 */
+const MAX_SAVED_MESSAGES = 80;
 
 interface OrchAction {
   label: string;
@@ -61,7 +65,9 @@ interface PageData {
   modalAgentTitle: string;
   modalThreadId: string;
   modalTaskType: string;
+  modalCardId: string;
   pendingFile: PendingFile | null;
+  pickerVisible: boolean;
 }
 
 Page<PageData, {}>({
@@ -76,10 +82,71 @@ Page<PageData, {}>({
     modalAgentTitle: '',
     modalThreadId: '',
     modalTaskType: '',
+    modalCardId: '',
     pendingFile: null,
+    pickerVisible: false,
   },
 
   onLoad() {
+    // 优先恢复上次会话（消息+上下文都还在）；没有存档才跑开场简报。
+    // 重新简报/清空由 IR 自己点「新会话」决定，不随小程序冷启动自动发生。
+    if (!this._restoreSession()) {
+      this._runOrchestratorBriefing();
+    }
+  },
+
+  /** 会话存档按 IR 隔离：不同账号在同一台手机上不会串聊天记录 */
+  _sessionKey(): string {
+    const user = storage.get<{ id: number }>('mro:user');
+    return `chat:session:${user?.id || 'anon'}`;
+  },
+
+  _persistSession() {
+    try {
+      // thinking 是瞬态占位（WS 一断就没意义），存档时剔除
+      const messages = this.data.messages
+        .filter((m) => m.kind !== 'thinking')
+        .slice(-MAX_SAVED_MESSAGES);
+      storage.set(this._sessionKey(), {
+        v: 1,
+        messages,
+        history: this.data.history,
+        savedAt: Date.now(),
+      });
+    } catch (_e) {/* 存储超限等失败静默，不影响聊天 */}
+  },
+
+  _restoreSession(): boolean {
+    const saved = storage.get<{ v: number; messages: Message[]; history: any[] }>(this._sessionKey());
+    if (!saved || !Array.isArray(saved.messages) || !saved.messages.length) return false;
+    const messages = saved.messages.filter((m) => m.kind !== 'thinking');
+    if (!messages.length) return false;
+    this.setData({
+      messages,
+      history: Array.isArray(saved.history) ? saved.history.slice(-10) : [],
+      scrollToView: messages[messages.length - 1].id,
+    });
+    return true;
+  },
+
+  async onNewSession() {
+    const { confirm } = await wx.showModal({
+      title: '开启新会话',
+      content: '当前对话将被清空，Agent 会重新生成今日简报。确定开启？',
+      confirmText: '新会话',
+    });
+    if (!confirm) return;
+    if (this.data.currentThreadId) {
+      wsManager.unsubscribe(this.data.currentThreadId);
+    }
+    storage.del(this._sessionKey());
+    this.setData({
+      messages: [],
+      history: [],
+      currentThreadId: '',
+      input: '',
+      pendingFile: null,
+    });
     this._runOrchestratorBriefing();
   },
 
@@ -89,6 +156,14 @@ Page<PageData, {}>({
     if (incoming && incoming !== this.data.currentThreadId) {
       wx.removeStorageSync('chat:incoming_thread');
       this._subscribeToThread(incoming);
+    }
+    // 「问 Agent 关于 X」等场景：带上下文进来，气泡只显简短标签，实际发送完整上下文
+    const ask = wx.getStorageSync('chat:incoming_ask');
+    if (ask) {
+      wx.removeStorageSync('chat:incoming_ask');
+      const label = wx.getStorageSync('chat:incoming_ask_label') || ask;
+      wx.removeStorageSync('chat:incoming_ask_label');
+      this._sendMessage(label, ask);
     }
   },
 
@@ -179,6 +254,7 @@ Page<PageData, {}>({
       messages: [...this.data.messages, msg],
       scrollToView: msg.id,
     });
+    this._persistSession();
   },
 
   _replaceMessage(id: string, patch: Partial<Message>) {
@@ -186,10 +262,23 @@ Page<PageData, {}>({
       m.id === id ? { ...m, ...patch } : m
     );
     this.setData({ messages, scrollToView: id });
+    this._persistSession();
   },
 
   onInput(e: WechatMiniprogram.Input) {
     this.setData({ input: e.detail.value });
+  },
+
+  /** 长按用户气泡或 agent 回复 → 直接复制到剪贴板。
+   *  agent_text 用 item.body（markdown 原文），用户气泡用 item.text。 */
+  onMsgLongPress(e: WechatMiniprogram.TouchEvent) {
+    const text = String(e.currentTarget.dataset.text || '').trim();
+    if (!text) return;
+    wx.setClipboardData({
+      data: text,
+      success: () => wx.showToast({ title: '已复制', icon: 'success', duration: 1200 }),
+      fail: () => wx.showToast({ title: '复制失败', icon: 'none' }),
+    });
   },
 
   async onSend() {
@@ -208,15 +297,21 @@ Page<PageData, {}>({
       ? `[IR 已上传${pending.purpose === 'image' ? '图片' : '文档'} url=${pending.url} 文件名=${pending.name}] ${text || '请根据上下文处理这个文件，或反问 IR 想做什么'}`
       : text;
 
+    const imageUrl = pending && pending.purpose === 'image' ? pending.url : undefined;
+    await this._sendMessage(displayText, sendText, imageUrl);
+  },
+
+  /** 发一条消息：displayText 显示在用户气泡，sendText 实际发给后端（两者可不同，
+   *  例如「问 Agent 关于 X」气泡显示简短标签、实际发送完整上下文）。 */
+  async _sendMessage(displayText: string, sendText: string, imageUrl?: string) {
     const userMsgId = `u-${Date.now()}`;
     this._appendMessage({
       id: userMsgId,
       kind: 'user',
       text: displayText,
-      imageUrl: pending && pending.purpose === 'image' ? pending.url : undefined,
+      imageUrl,
     });
 
-    // thinking
     const thinkingId = `t-${Date.now()}`;
     this._appendMessage({
       id: thinkingId,
@@ -230,27 +325,22 @@ Page<PageData, {}>({
         message: sendText,
         history: this.data.history.slice(-10),
       });
-
-      // 替换 thinking 为 agent_text；agent_role 默认 orchestrator
       this._replaceMessage(thinkingId, {
         kind: 'agent_text',
         agent: res.agent_role || 'orchestrator',
         body: res.reply,
         bodyHtml: mdToHtml(res.reply || ''),
       });
-
-      // 如果 Orchestrator 触发了 workflow，自动接管 WS 显示其它 agent 的进度
       if (res.thread_id) {
         this._subscribeToThread(res.thread_id);
       }
-
-      // 更新 history
       const newHistory = [
         ...this.data.history,
         { role: 'user' as const, content: sendText },
         { role: 'assistant' as const, content: res.reply },
       ];
       this.setData({ history: newHistory.slice(-10) });
+      this._persistSession();
     } catch (e) {
       this._replaceMessage(thinkingId, {
         kind: 'agent_text',
@@ -446,13 +536,16 @@ Page<PageData, {}>({
 
     // 长内容点 modify（!inlineEditable），且没有 final（即第一次点，不是提交）
     if (action === 'modify' && !final && msg.body && msg.body.length >= 200) {
-      // 长内容 modify → 弹 Modal
+      // 动作交给 Modal 处理：先复位底层卡片的「提交中」（否则它会一直卡在 disabled），
+      // 记住 cardId 等 Modal 完成后回来收尾。
+      this._resetCard(msg.id);
       this.setData({
         modalVisible: true,
         modalAgentTitle: msg.title || '内容 Agent',
         modalBody: msg.body,
         modalThreadId: msg.threadId,
         modalTaskType: msg.taskType || '',
+        modalCardId: msg.id,
       });
       return;
     }
@@ -468,7 +561,11 @@ Page<PageData, {}>({
     let investorIds: number[] | null = null;
     if (['approve', 'modify'].includes(action) && msg.taskType === 'meeting_minutes') {
       investorIds = await this._pickInvestorsForReview();
-      if (investorIds === null) return; // 用户取消整个流程
+      if (investorIds === null) {
+        // 用户取消整个流程 —— 卡片已置「提交中」，必须复位否则永远卡住
+        this._resetCard(msg.id);
+        return;
+      }
     }
 
     try {
@@ -481,15 +578,27 @@ Page<PageData, {}>({
       }
       await api.post(`/api/agent/${msg.threadId}/review`, body);
 
-      // reject 立即更新 UI（approve/modify 等 WS done 推回）
-      if (action === 'reject') {
-        this._replaceMessage(msg.id, {
-          actions: [],
-          showStatus: '已拒绝',
-        });
-      }
+      // POST 200 = 后端已接受审核决定。直接乐观更新卡片，不再单纯依赖 WS done：
+      // meeting_minutes 等 resume 时 WS 可能已关闭（done 投递不到），否则会卡「提交中」。
+      // 若 WS done 之后真到了，会再 replaceMessage 刷新一次，无副作用。
+      const patch: any = {
+        actions: [],
+        showStatus: action === 'reject' ? '已拒绝' : '已通过',
+      };
+      if (action === 'modify' && final) patch.body = final;  // 显示编辑后的内容
+      this._replaceMessage(msg.id, patch);
     } catch (err: any) {
+      // 提交失败没有 WS done 回推，必须手动复位卡片，否则卡在「提交中...」
+      this._resetCard(msg.id);
       wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
+    }
+  },
+
+  /** 复位某条 agent-card 的「提交中」/编辑态（用于失败或用户取消的兜底）。 */
+  _resetCard(msgId: string) {
+    const card = this.selectComponent('#card-' + msgId) as any;
+    if (card && typeof card.resetSubmitting === 'function') {
+      card.resetSubmitting();
     }
   },
 
@@ -504,18 +613,45 @@ Page<PageData, {}>({
     if (url) wx.previewImage({ urls: [url], current: url });
   },
 
-  async onPlusTap() {
-    const choice = await new Promise<number | null>((resolve) => {
-      wx.showActionSheet({
-        itemList: ['🎵 会议录音（音频）', '📎 文档（BP / PDF / Word）', '🖼️ 图片'],
-        success: (r) => resolve(r.tapIndex),
-        fail: () => resolve(null),
+  /** + 号弹出自定义底部选择器（替换原 wx.showActionSheet，视觉更明显）。 */
+  onPlusTap() {
+    this.setData({ pickerVisible: true });
+  },
+
+  onPickerCancel() {
+    this.setData({ pickerVisible: false });
+  },
+
+  async onPickerSelect(e: WechatMiniprogram.TouchEvent) {
+    const type = e.currentTarget.dataset.type as string;
+    this.setData({ pickerVisible: false });
+    // 等动画收完再起原生 picker，避免 sheet 还在滑落时弹出系统选择器
+    await new Promise(r => setTimeout(r, 220));
+    if (type === 'text') await this._pasteFromClipboard();
+    else if (type === 'audio') await this._uploadAndDispatchAudio();
+    else if (type === 'doc') await this._stagePending('doc');
+    else if (type === 'image-album') await this._stagePending('image', 'album');
+    else if (type === 'image-chat') await this._stagePending('image', 'chat');
+  },
+
+  // 微信不开放读取聊天「文字消息」（隐私沙箱），chooseMessageFile 只能选文件。
+  // 折中：用户在微信长按消息→复制，回小程序一键从剪贴板填入；可多次累加多条。
+  async _pasteFromClipboard() {
+    const data = await new Promise<string>((resolve) => {
+      wx.getClipboardData({
+        success: (r) => resolve(r.data || ''),
+        fail: () => resolve(''),
       });
     });
-    if (choice === null) return;
-    if (choice === 0) await this._uploadAndDispatchAudio();
-    else if (choice === 1) await this._stagePending('doc');
-    else await this._stagePending('image');
+    const text = (data || '').trim();
+    if (!text) {
+      wx.showToast({ title: '剪贴板没有文字', icon: 'none' });
+      return;
+    }
+    const cur = this.data.input || '';
+    const next = cur ? cur.replace(/\s+$/, '') + '\n' + text : text;
+    this.setData({ input: next });
+    wx.showToast({ title: '已粘贴', icon: 'success', duration: 1000 });
   },
 
   async _uploadToQiniu(filePath: string, name: string, purpose: 'audio' | 'doc' | 'image'): Promise<string> {
@@ -569,9 +705,9 @@ Page<PageData, {}>({
     }
   },
 
-  async _stagePending(purpose: 'doc' | 'image') {
+  async _stagePending(purpose: 'doc' | 'image', source: 'album' | 'chat' = 'album') {
     let pick: { path: string; name: string; size: number } | null = null;
-    if (purpose === 'image') {
+    if (purpose === 'image' && source === 'album') {
       pick = await new Promise((resolve) => {
         wx.chooseImage({
           count: 1,
@@ -579,6 +715,17 @@ Page<PageData, {}>({
             const p = r.tempFilePaths[0];
             const f = (r as any).tempFiles?.[0];
             resolve({ path: p, name: f?.name || p.split('/').pop() || 'image', size: f?.size || 0 });
+          },
+          fail: () => resolve(null),
+        });
+      });
+    } else if (purpose === 'image' && source === 'chat') {
+      pick = await new Promise((resolve) => {
+        wx.chooseMessageFile({
+          count: 1, type: 'image',
+          success: (r) => {
+            const f = r.tempFiles[0];
+            resolve({ path: f.path, name: f.name || f.path.split('/').pop() || 'image', size: f.size });
           },
           fail: () => resolve(null),
         });
@@ -634,7 +781,11 @@ Page<PageData, {}>({
     if (['approve', 'modify', 'modify_and_approve'].includes(action)
         && this.data.modalTaskType === 'meeting_minutes') {
       investorIds = await this._pickInvestorsForReview();
-      if (investorIds === null) return;
+      if (investorIds === null) {
+        // 取消整个流程 —— Modal 已置「提交中」，必须复位否则卡死
+        this._resetModal();
+        return;
+      }
     }
 
     try {
@@ -642,9 +793,27 @@ Page<PageData, {}>({
       if (final) body.final = final;
       if (investorIds && investorIds.length > 0) body.investor_ids = investorIds;
       await api.post(`/api/agent/${threadId}/review`, body);
+      // 关弹窗 + 把底层卡片收尾为终态（不依赖 WS done，resume 时 WS 可能已断）
+      this._resetModal();
       this.setData({ modalVisible: false });
+      const cardId = this.data.modalCardId;
+      if (cardId) {
+        const patch: any = { actions: [], showStatus: action === 'reject' ? '已拒绝' : '已通过' };
+        if (final) patch.body = final;
+        this._replaceMessage(cardId, patch);
+      }
     } catch (err: any) {
+      // 失败：弹窗仍开着，复位「提交中」让用户能重试
+      this._resetModal();
       wx.showToast({ title: err?.detail || '提交失败', icon: 'none' });
+    }
+  },
+
+  /** 复位长内容审核 Modal 的「提交中」状态。 */
+  _resetModal() {
+    const modal = this.selectComponent('#review-modal') as any;
+    if (modal && typeof modal.resetSubmitting === 'function') {
+      modal.resetSubmitting();
     }
   },
 
@@ -652,7 +821,9 @@ Page<PageData, {}>({
   async _pickInvestorsForReview(): Promise<number[] | null> {
     let investors: { id: number; name: string; agency?: string }[] = [];
     try {
-      investors = await api.get<any[]>('/api/investors?limit=8', { silent: true });
+      // /api/investors 返回 InvestorListOut { items, total }，不是裸数组——必须取 .items
+      const resp = await api.get<{ items: any[] }>('/api/investors?limit=8', { silent: true });
+      investors = resp?.items || [];
     } catch (_e) { investors = []; }
 
     if (!investors.length) {

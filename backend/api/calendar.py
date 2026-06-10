@@ -14,6 +14,8 @@ from models.interaction_logs import InteractionLog
 from models.ir_users import IRUser
 from models.calendar_dismissals import CalendarDismissal
 from models.outreach_records import OutreachRecord
+from models.ir_investor_membership import IrInvestorMembership
+from models.calendar_events import CalendarEventRow
 from auth.jwt import get_current_ir
 from redis_client import get_redis
 from services import crypto_service
@@ -33,6 +35,7 @@ class CalendarEvent(BaseModel):
     action_prefill: str
     tencent_meeting_id: Optional[str] = None  # 仅 type=meeting 时有值
     event_key: str = ""                       # 用于 IR 主动 dismiss 时定位事件
+    event_id: int = 0                         # 仅 type=schedule 时有值，用于编辑/删除
 
 class DailyCalendarOut(BaseModel):
     date: str
@@ -45,15 +48,20 @@ class MonthCalendarOut(BaseModel):
 
 
 async def _my_investor_ids(db: AsyncSession, ir_id: int) -> list[int]:
-    """该 IR 「自己的」投资人 = 有过 interaction_logs 或 outreach_records 的 investor_id 并集。
-    用于隔离不同 IR 的日历视图，避免 birthday/followup 等事件全表泄漏。"""
+    """该 IR 「自己的」投资人。
+    主源：ir_investor_membership（"+ 新增 / + 加入" 时显式写入）。
+    兜底：InteractionLog + OutreachRecord 推导（防 backfill 漏 / 工作流新增的关系还没回写 membership）。
+    用于隔离不同 IR 的日历视图和投资人库，避免数据全表泄漏。"""
+    rows_m = (await db.execute(
+        select(IrInvestorMembership.investor_id).where(IrInvestorMembership.ir_id == ir_id)
+    )).scalars().all()
     rows_a = (await db.execute(
         select(InteractionLog.investor_id).where(InteractionLog.ir_id == ir_id).distinct()
     )).scalars().all()
     rows_b = (await db.execute(
         select(OutreachRecord.investor_id).where(OutreachRecord.ir_id == ir_id).distinct()
     )).scalars().all()
-    return list({*rows_a, *rows_b})
+    return [i for i in {*rows_m, *rows_a, *rows_b} if i is not None]
 
 
 async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
@@ -87,10 +95,13 @@ async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
     now = datetime.now()
     # 5s 硬超时保护：腾讯偶发慢时降级返回空，不拖垮日历端点
     try:
+        # 必须传 Unix 整数时间戳：曾用 strftime 字符串，腾讯静默把窗口拉早 2 天，
+        # 当天的 ended 会议（开过/结束的）会完全拿不到，看起来像「今天 13:30 这场没收到」。
         ended = await asyncio.wait_for(
             client.list_ended_meetings(
-                start_time=(now - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S"),
-                end_time=now.strftime("%Y-%m-%d %H:%M:%S"),
+                start_time=int((now - timedelta(days=60)).timestamp()),
+                end_time=int(now.timestamp()),
+                page_size=100,
             ),
             timeout=5.0,
         )
@@ -103,6 +114,9 @@ async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
         logger.warning("tencent list_upcoming_meetings failed for ir %s: %s", ir_id, e)
         upcoming = []
 
+    # ended + upcoming 可能同时包含同一场（刚结束的会议腾讯短时间内会出现在两边），
+    # 按 (meeting_id, date, time) 去重——递归会议同 meeting_id 不同实例时间能保留
+    seen: set[tuple[str, str, str]] = set()
     for m in (ended or []) + (upcoming or []):
         start_str = str(m.get("start_time") or "")
         end_str = str(m.get("end_time") or "")
@@ -114,12 +128,17 @@ async def _load_tencent_meetings(db: AsyncSession, ir_id: int) -> list[dict]:
             end_t = end_str.split("T", 1)[1][:5] if "T" in end_str else ""
         except Exception:
             continue
+        mid = str(m.get("meeting_id") or "")
+        key = (mid, d, t)
+        if key in seen:
+            continue
+        seen.add(key)
         items.append({
             "date": d,
             "time": t,
             "end_time": end_t,
             "subject": str(m.get("subject") or "（无主题）"),
-            "meeting_id": str(m.get("meeting_id") or ""),
+            "meeting_id": mid,
         })
 
     if redis is not None:
@@ -292,9 +311,43 @@ async def get_daily_calendar(
             tencent_meeting_id=m["meeting_id"],
             event_key=key,
         ))
+
+    # IR 自由日程（calendar_events，按 IR 隔离）—— 一等公民，可编辑/删除
+    sched_rows = (await db.execute(
+        select(CalendarEventRow).where(
+            CalendarEventRow.ir_id == ir_id,
+            CalendarEventRow.event_date == cal_date,
+        )
+    )).scalars().all()
+    for row in sched_rows:
+        events.append(_schedule_row_to_event(row))
+
     events.sort(key=lambda e: e.time)
 
     return DailyCalendarOut(date=str(cal_date), ir_id=ir_id, events=events)
+
+
+def _schedule_row_to_event(row: CalendarEventRow) -> CalendarEvent:
+    """把 calendar_events 行转成日历事件（type=schedule）。"""
+    t = row.start_time or "全天"
+    desc_parts = []
+    if row.start_time:
+        desc_parts.append(row.start_time + (f"～{row.end_time}" if row.end_time else ""))
+    if row.location:
+        desc_parts.append(row.location)
+    if row.notes:
+        desc_parts.append(row.notes)
+    return CalendarEvent(
+        time=t if row.start_time else "00:00",  # 全天排在最前
+        type="schedule",
+        title=row.title,
+        description=" · ".join(desc_parts) or "我的日程",
+        investor_id=row.investor_id or 0,
+        action_label="编辑",
+        action_prefill="",
+        event_key=f"schedule:{row.id}",
+        event_id=row.id,
+    )
 
 
 @router.get("/month", response_model=MonthCalendarOut)
@@ -366,6 +419,16 @@ async def get_month_calendar(
     for m in meetings:
         meetings_by_date.setdefault(m["date"], []).append(m)
 
+    # 当月 IR 自由日程（calendar_events）按日聚合，用于月历圆点
+    sched_rows = (await db.execute(
+        select(CalendarEventRow.event_date).where(
+            CalendarEventRow.ir_id == current_ir["ir_id"],
+            CalendarEventRow.event_date >= date(year, month_num, 1),
+            CalendarEventRow.event_date <= date(year, month_num, last_day_num),
+        )
+    )).scalars().all()
+    schedule_dates: set[str] = {d.isoformat() for d in sched_rows}
+
     days: dict[str, list[str]] = {}
     for day_num in range(1, last_day_num + 1):
         target_date = date(year, month_num, day_num)
@@ -383,6 +446,9 @@ async def get_month_calendar(
         if any(f"meeting:{m['meeting_id']}" not in dismissed_today
                for m in meetings_by_date.get(date_str, [])):
             seen["meeting"] = None
+        # IR 自由日程圆点
+        if date_str in schedule_dates:
+            seen["schedule"] = None
         if seen:
             days[date_str] = list(seen.keys())
 
@@ -419,3 +485,145 @@ async def dismiss_event(
         await db.rollback()
         # unique 冲突 = 已 dismiss 过，视为成功
     return {"ok": True, "event_key": key, "event_date": body.event_date}
+
+
+# ============ IR 自由日程 手动 CRUD（calendar_events，按 IR 隔离）============
+
+class ScheduleIn(BaseModel):
+    title: str
+    date: str                          # YYYY-MM-DD
+    start_time: Optional[str] = None   # HH:MM
+    end_time: Optional[str] = None     # HH:MM
+    investor_id: Optional[int] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _norm_hm(v: Optional[str]) -> Optional[str]:
+    v = (v or "").strip()
+    if not v:
+        return None
+    parts = v.split(":")
+    try:
+        h = int(parts[0]); m = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    return f"{h:02d}:{m:02d}"
+
+
+def _schedule_row_out(row: CalendarEventRow) -> dict:
+    return {
+        "id": row.id,
+        "title": row.title,
+        "date": row.event_date.isoformat(),
+        "start_time": row.start_time,
+        "end_time": row.end_time,
+        "investor_id": row.investor_id,
+        "location": row.location,
+        "notes": row.notes,
+        "source": row.source,
+    }
+
+
+@router.get("/events/{event_id}")
+async def get_schedule_event(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """取单条日程原始字段（编辑态用）。owner check：只能看自己的。"""
+    row = (await db.execute(
+        select(CalendarEventRow).where(
+            CalendarEventRow.id == event_id,
+            CalendarEventRow.ir_id == current_ir["ir_id"],
+        )
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="日程不存在或无权限")
+    return _schedule_row_out(row)
+
+
+@router.post("/events")
+async def create_schedule_event(
+    body: ScheduleIn,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """IR 手动新建一条日程。按 IR 隔离：ir_id 取当前登录用户。"""
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title 必填")
+    try:
+        ev_date = date.fromisoformat((body.date or "").strip())
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"date 格式无效（YYYY-MM-DD）：{body.date}")
+    row = CalendarEventRow(
+        ir_id=current_ir["ir_id"],
+        investor_id=body.investor_id or None,
+        title=title,
+        event_date=ev_date,
+        start_time=_norm_hm(body.start_time),
+        end_time=_norm_hm(body.end_time),
+        location=(body.location or "").strip() or None,
+        notes=(body.notes or "").strip() or None,
+        source="manual",
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"ok": True, **_schedule_row_out(row)}
+
+
+@router.put("/events/{event_id}")
+async def update_schedule_event(
+    event_id: int,
+    body: ScheduleIn,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """编辑日程。owner check：只能改自己的（ir_id 匹配），否则 404。"""
+    row = (await db.execute(
+        select(CalendarEventRow).where(
+            CalendarEventRow.id == event_id,
+            CalendarEventRow.ir_id == current_ir["ir_id"],
+        )
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="日程不存在或无权限")
+    if body.title is not None and body.title.strip():
+        row.title = body.title.strip()
+    if body.date:
+        try:
+            row.event_date = date.fromisoformat(body.date.strip())
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"date 格式无效：{body.date}")
+    row.start_time = _norm_hm(body.start_time)
+    row.end_time = _norm_hm(body.end_time)
+    row.investor_id = body.investor_id or None
+    row.location = (body.location or "").strip() or None
+    row.notes = (body.notes or "").strip() or None
+    await db.commit()
+    await db.refresh(row)
+    return {"ok": True, **_schedule_row_out(row)}
+
+
+@router.delete("/events/{event_id}")
+async def delete_schedule_event(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """删除日程（真删，不是 dismiss）。owner check：只能删自己的。"""
+    row = (await db.execute(
+        select(CalendarEventRow).where(
+            CalendarEventRow.id == event_id,
+            CalendarEventRow.ir_id == current_ir["ir_id"],
+        )
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="日程不存在或无权限")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True, "deleted": True, "id": event_id}

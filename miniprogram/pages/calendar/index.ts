@@ -11,6 +11,7 @@ const TYPE_COLORS: Record<string, string> = {
   milestone: '#F59E0B',
   meeting: '#10B981',
   push: '#8B5CF6',
+  schedule: '#EC4899',
 };
 
 interface DayCell {

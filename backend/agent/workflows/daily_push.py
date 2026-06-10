@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from datetime import date, timedelta
 from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
@@ -64,6 +65,23 @@ async def fetch_profiles_node(state: AgentState) -> dict:
 _EMOJIS = ["💬", "✨", "📨", "🌟", "🤝", "💡"]
 
 
+def _strip_code_fence(raw: str) -> str:
+    """剥掉 LLM 可能加的 ```json ... ``` 围栏，提取最外层 JSON 数组。
+
+    minimax 等模型常把 JSON 包在 markdown 代码块里，否则 json.loads 会失败，
+    导致草稿直接显示原始 JSON、入库时也按 unified fallback 把 JSON 当文案发出去。
+    """
+    t = (raw or "").strip()
+    m = re.search(r"```(?:json)?\s*(\[.*\])\s*```", t, re.DOTALL)
+    if m:
+        return m.group(1)
+    if not t.startswith("["):
+        m2 = re.search(r"\[.*\]", t, re.DOTALL)
+        if m2:
+            return m2.group(0)
+    return t
+
+
 def _render_messages(raw: str, events: list[dict]) -> str:
     """把 LLM 输出的 JSON 数组渲染成人类可读 markdown。
     单条：直接显示 message 文本（前置 1 个 emoji）
@@ -108,6 +126,7 @@ async def generate_node(state: AgentState) -> dict:
         },
     )
     raw = await skill_registry.call("Claude.生成内容", context=context)
+    raw = _strip_code_fence(raw)   # 去掉 ```json``` 围栏，保证下游 json.loads 成功
     draft = _render_messages(raw, state.get("events") or [])
     return {
         "draft": draft,
@@ -126,7 +145,9 @@ async def save_node(state: AgentState) -> dict:
             # 用户编辑过 final 时 fallback 到把 final 当统一文案发给所有投资人。
             messages = None
             raw_json = state.get("generated_messages_json") or ""
-            if state.get("ir_action") == "approved" and raw_json:
+            # approved（IR 通过原 JSON）或 auto_draft（定时任务无人工审核）都按
+            # per-investor 拆分；前者落 approved，后者落 draft（见下方 status）。
+            if (state.get("ir_action") == "approved" or state.get("auto_draft")) and raw_json:
                 try:
                     parsed = json.loads(raw_json)
                     if isinstance(parsed, list) and parsed:

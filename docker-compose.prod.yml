@@ -1,0 +1,39 @@
+# 生产部署：只容器化 app（fastapi + celery worker + beat）。
+# MySQL 走宿主机系统服务 127.0.0.1:3306，Redis 走已有容器 fa-redis-stack 127.0.0.1:6380。
+# 用 network_mode: host，所以 .env 里的 127.0.0.1 连接串无需改动，nginx 上游 :8003 不变。
+# restart: unless-stopped 让进程崩溃后自动拉起，根治裸进程僵尸/手动重启问题。
+services:
+  fastapi:
+    build: ./backend
+    image: fa-agent-app:latest
+    network_mode: host
+    env_file: .env
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8003
+    restart: unless-stopped
+
+  celery_worker:
+    image: fa-agent-app:latest
+    network_mode: host
+    env_file: .env
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    command: celery -A worker.celery_app worker -Q default,content -l info
+    restart: unless-stopped
+    depends_on:
+      - fastapi
+
+  celery_beat:
+    image: fa-agent-app:latest
+    network_mode: host
+    env_file: .env
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    command: celery -A worker.celery_app beat -l info
+    restart: unless-stopped
+    depends_on:
+      - fastapi

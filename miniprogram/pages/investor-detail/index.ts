@@ -212,19 +212,73 @@ Page<PageData, {}>({
 
   onAskAgent() {
     if (!this.data.investor) return;
-    // 触发 daily_push workflow
-    api.post<{ thread_id: string }>('/api/agent/run', {
-      task_type: 'daily_push',
-      investor_ids: [this.data.investorId],
-      target_date: formatDate(new Date()),
-    }).then(res => {
-      wx.setStorageSync('chat:incoming_thread', res.thread_id);
-      wx.switchTab({ url: '/pages/chat/index' });
-    });
+    // 自由对话查询（不是 event-gated 的 daily_push —— 对没有当日事件的投资人会生成空内容）。
+    // 把详情页已加载的完整上下文一起带给 agent：chat 侧没有"读互动/读熟悉度"的工具，
+    // 不预载这些数据 agent 就拿不到、分析会遗漏。
+    const inv = this.data.investor as any;
+    const lines: string[] = [];
+    lines.push(`关于投资人${inv.name}${inv.agency ? '（' + inv.agency + '）' : ''}的分析请求。`);
+    lines.push('以下信息已提供，请直接基于这些分析当前关系进展并给出下一步跟进建议，无需再调工具查询：');
+
+    const profile: string[] = [];
+    if (inv.position) profile.push(`职务：${inv.position}`);
+    if (inv.relationship_score != null) profile.push(`关系值：${inv.relationship_score}`);
+    if (inv.familiarity) profile.push(`本地熟悉度：${inv.familiarity}`);
+    if ((inv.industry_tags || []).length) profile.push(`行业标签：${inv.industry_tags.join('、')}`);
+    if ((inv.stage_pref || []).length) profile.push(`阶段偏好：${inv.stage_pref.join('、')}`);
+    if (inv.profile_notes) profile.push(`画像备注：${inv.profile_notes}`);
+    if (profile.length) lines.push('\n【基本画像】\n' + profile.join('\n'));
+
+    const ints = this.data.interactions || [];
+    if (ints.length) {
+      lines.push('\n【近期互动】\n' + ints.map((i: any) =>
+        `- [${i.dateLabel || ''}] ${i.typeLabel || i.type}：${i.summary || '（无摘要）'}`).join('\n'));
+    } else {
+      lines.push('\n【近期互动】暂无记录');
+    }
+
+    const fam = this.data.qmingpianFamiliar || [];
+    if (fam.length) {
+      lines.push('\n【团队熟悉度·企名片】\n' + fam.map((f) => `- ${f.name}：${f.level}`).join('\n'));
+    }
+
+    const sums = this.data.qmingpianSummaries || [];
+    if (sums.length) {
+      lines.push('\n【企名片机构纪要】\n' + sums.slice(0, 5).map((s: any) =>
+        `- ${s.content}${s.creator ? '（' + s.creator + '）' : ''}`).join('\n'));
+    }
+
+    wx.setStorageSync('chat:incoming_ask', lines.join('\n'));
+    wx.setStorageSync('chat:incoming_ask_label',
+      `分析 ${inv.name}${inv.agency ? '（' + inv.agency + '）' : ''} 的关系进展与下一步跟进建议`);
+    wx.switchTab({ url: '/pages/chat/index' });
   },
 
   onAddInteraction() {
     wx.navigateTo({ url: `/pages/interaction-new/index?investor_id=${this.data.investorId}` });
+  },
+
+  async onDeleteInteraction(e: WechatMiniprogram.TouchEvent) {
+    const id = Number(e.currentTarget.dataset.id);
+    if (!id) return;
+    const { confirm } = await new Promise<{ confirm: boolean }>((resolve) => {
+      wx.showModal({
+        title: '删除这条互动记录？',
+        content: '删除后无法恢复。',
+        confirmText: '删除',
+        confirmColor: '#EF4444',
+        success: (r) => resolve({ confirm: !!r.confirm }),
+        fail: () => resolve({ confirm: false }),
+      });
+    });
+    if (!confirm) return;
+    try {
+      await api.del(`/api/investors/${this.data.investorId}/interactions/${id}`);
+      this.setData({
+        interactions: this.data.interactions.filter((i: any) => i.id !== id),
+      });
+      wx.showToast({ title: '已删除', icon: 'success' });
+    } catch (err) { /* api toast */ }
   },
 
   previewCard(e: WechatMiniprogram.TouchEvent) {

@@ -52,6 +52,10 @@ class AgentState(TypedDict):
     # the Outreach Agent to draft an invitation message.
     action_items: Optional[list]
 
+    # 定时任务（无人工审核）直接生成草稿落库时置 True，save_node 据此走
+    # per-investor 分发并以 status=draft 保存，不进 review 中断。
+    auto_draft: Optional[bool]
+
     # Output
     draft: Optional[str]
     final: Optional[str]

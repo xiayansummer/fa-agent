@@ -9,8 +9,15 @@ Component({
     submitting: false,
   },
   observers: {
-    'body, visible': function(body, visible) {
-      if (visible && !this.data.submitting) {
+    'visible': function(visible) {
+      // 每次打开都是新一轮审核：强制复位 submitting，并用最新 body 填充编辑框。
+      // 否则上一次提交后 submitting 残留为 true，重开会直接卡在「提交中...」。
+      if (visible) {
+        this.setData({ submitting: false, editText: this.data.body });
+      }
+    },
+    'body': function(body) {
+      if (this.data.visible && !this.data.submitting) {
         this.setData({ editText: body });
       }
     },

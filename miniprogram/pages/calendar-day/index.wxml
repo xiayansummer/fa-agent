@@ -2,6 +2,7 @@
   <view class="header">
     <view class="date">{{date}}</view>
     <view class="hint">✦ Agent 已为你规划 {{events.length}} 项任务</view>
+    <view class="add-schedule" bindtap="onAddSchedule">＋ 新建日程</view>
   </view>
 
   <view class="empty" wx:if="{{events.length === 0 && !loading}}">

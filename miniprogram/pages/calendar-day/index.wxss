@@ -1,7 +1,15 @@
 .day-page { padding: 32rpx; min-height: 100vh; background: var(--bg-base); }
-.header { margin-bottom: 32rpx; }
+.header { margin-bottom: 32rpx; position: relative; }
 .date { font-size: 36rpx; font-weight: 700; }
 .hint { color: var(--agent-orchestrator); font-size: 24rpx; margin-top: 12rpx; }
+.add-schedule {
+  position: absolute;
+  top: 0; right: 0;
+  background: #EC4899; color: #fff;
+  font-size: 26rpx; font-weight: 500;
+  padding: 14rpx 28rpx; border-radius: 999rpx;
+}
+.add-schedule:active { opacity: 0.85; }
 .empty {
   text-align: center; padding: 120rpx 0;
   color: var(--text-secondary); font-size: 28rpx;

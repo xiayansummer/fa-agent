@@ -1,3 +1,15 @@
+import logging
+
+# 没有这行，整个应用的 logger.info（含 api.agent 每次 tool_call 的审计日志）都会被
+# Python 默认 WARNING 级吞掉——2026-06-10 排查「机构纪要写到哪了」时发现完全无日志可查。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+# httpx 每个请求都打 INFO（含 Qiniu 签名 URL 等敏感串），降噪 + 防泄漏
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 from fastapi import FastAPI
 from auth.router import router as auth_router
 from api.investors import router as investors_router
@@ -15,6 +27,7 @@ import skills.tavily_skill   # noqa: F401
 import skills.qmingpian      # noqa: F401
 import skills.tencent_meeting # noqa: F401
 import skills.asr_skill      # noqa: F401
+import skills.doc_extract    # noqa: F401
 
 # Trigger workflow graph registration
 import agent  # noqa: F401

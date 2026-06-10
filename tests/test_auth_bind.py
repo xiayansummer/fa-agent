@@ -8,9 +8,9 @@ Tests:
 - test_bind_phone_expired_session_returns_410
 """
 import json
+import time
 import pytest
-import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 import sys, os
 
@@ -29,6 +29,31 @@ def _make_mock_redis(stored_value=None):
     mock_redis.setex = AsyncMock()
     mock_redis.delete = AsyncMock()
     return mock_redis
+
+
+def _phone_payload(phone: str) -> dict:
+    return {
+        "phoneNumber": phone,
+        "watermark": {"appid": "test", "timestamp": int(time.time())},
+    }
+
+
+def test_validate_watermark_rejects_wrong_appid():
+    from auth.wechat import validate_watermark
+
+    with pytest.raises(ValueError, match="appid"):
+        validate_watermark({
+            "watermark": {"appid": "wrong", "timestamp": int(time.time())}
+        })
+
+
+def test_validate_watermark_rejects_expired_timestamp():
+    from auth.wechat import validate_watermark
+
+    with pytest.raises(ValueError, match="expired"):
+        validate_watermark({
+            "watermark": {"appid": "test", "timestamp": int(time.time()) - 601}
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -80,8 +105,12 @@ async def test_login_unbound_returns_need_phone_binding(override_db):
     call_args = mock_redis.setex.call_args
     key = call_args[0][0]
     ttl = call_args[0][1]
+    stored_session = json.loads(call_args[0][2])
     assert key.startswith("auth:session:")
     assert ttl == 600
+    assert stored_session["openid"] == "brand_new_openid_999"
+    assert "session_key_encrypted" in stored_session
+    assert "session_key" not in stored_session
 
 
 # ---------------------------------------------------------------------------
@@ -100,12 +129,13 @@ async def test_bind_phone_matches_writes_openid(db_session, override_db):
     await db_session.commit()
     await db_session.refresh(user)
 
-    stored = json.dumps({"openid": "fresh_openid_bind", "session_key": "sk_abc="})
+    stored = json.dumps({"openid": "fresh_openid_bind", "session_key_encrypted": "encrypted_sk"})
     mock_redis = _make_mock_redis(stored_value=stored)
 
     # Mock decrypt_user_data to return phone without needing real AES
     with patch("auth.router.get_redis", AsyncMock(return_value=mock_redis)), \
-         patch("auth.router.decrypt_user_data", return_value={"phoneNumber": "13800138001"}):
+         patch("auth.router.crypto_service.decrypt", return_value="sk"), \
+         patch("auth.router.decrypt_user_data", return_value=_phone_payload("13800138001")):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/auth/bind_phone", json={
                 "login_session": "abcdef1234567890abcdef1234567890",
@@ -129,11 +159,12 @@ async def test_bind_phone_matches_writes_openid(db_session, override_db):
 @pytest.mark.asyncio
 async def test_bind_phone_no_match_returns_403(db_session, override_db):
     """Phone from WeChat doesn't match any IR user → 403."""
-    stored = json.dumps({"openid": "some_openid_no_user", "session_key": "sk_xyz="})
+    stored = json.dumps({"openid": "some_openid_no_user", "session_key_encrypted": "encrypted_sk"})
     mock_redis = _make_mock_redis(stored_value=stored)
 
     with patch("auth.router.get_redis", AsyncMock(return_value=mock_redis)), \
-         patch("auth.router.decrypt_user_data", return_value={"phoneNumber": "19900000000"}):
+         patch("auth.router.crypto_service.decrypt", return_value="sk"), \
+         patch("auth.router.decrypt_user_data", return_value=_phone_payload("19900000000")):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/auth/bind_phone", json={
                 "login_session": "ffffffffffffffffffffffffffffffff",
@@ -172,11 +203,12 @@ async def test_bind_phone_inactive_user_returns_403(db_session, override_db):
     db_session.add(inactive_user)
     await db_session.commit()
 
-    stored = json.dumps({"openid": "some_openid_inactive", "session_key": "sk_inactive="})
+    stored = json.dumps({"openid": "some_openid_inactive", "session_key_encrypted": "encrypted_sk"})
     mock_redis = _make_mock_redis(stored_value=stored)
 
     with patch("auth.router.get_redis", AsyncMock(return_value=mock_redis)), \
-         patch("auth.router.decrypt_user_data", return_value={"phoneNumber": "13800000099"}):
+         patch("auth.router.crypto_service.decrypt", return_value="sk"), \
+         patch("auth.router.decrypt_user_data", return_value=_phone_payload("13800000099")):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/auth/bind_phone", json={
                 "login_session": "aaaabbbbccccddddeeeeffffaaaabbbb",

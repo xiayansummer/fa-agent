@@ -19,8 +19,12 @@ import skills.tavily_skill   # noqa: F401
 import skills.qmingpian      # noqa: F401
 import skills.tencent_meeting  # noqa: F401
 import skills.asr_skill      # noqa: F401
+import skills.doc_extract    # noqa: F401
 
-_API_BASE = settings.internal_api_base
+# 定时任务直接在 worker 进程内跑 workflow 节点（见 agent/scheduled.py），
+# 不再 HTTP 自调 FastAPI（鉴权+端口都不通，曾长期 405 失败）。
+import agent.workflows.daily_push          # noqa: F401
+import agent.workflows.milestone_outreach  # noqa: F401
 
 celery_app = Celery(
     "fa_agent",
@@ -49,21 +53,14 @@ celery_app.conf.beat_schedule = {
 
 @celery_app.task(name="worker.trigger_daily_push", bind=True)
 def trigger_daily_push(self):
-    """Kick off daily push workflow via internal HTTP call to FastAPI."""
-    import httpx
-    from datetime import date
-
+    """每个活跃 IR 在其投资人范围内生成 daily_push 草稿（进程内跑，无人工审核）。"""
+    import asyncio, os, sys
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+    from agent.scheduled import run_daily_push_for_all_irs
     try:
-        resp = httpx.post(
-            f"{_API_BASE}/api/agent/run",
-            json={
-                "task_type": "daily_push",
-                "target_date": date.today().isoformat(),
-            },
-            headers={"X-Celery-Internal": "1"},
-            timeout=10,
-        )
-        resp.raise_for_status()
+        return asyncio.run(run_daily_push_for_all_irs())
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300, max_retries=3)
 
@@ -92,32 +89,13 @@ def dispatch_outreach(self, ir_id: int, investor_ids: list,
 
 @celery_app.task(name="worker.trigger_milestone_outreach", bind=True)
 def trigger_milestone_outreach(self):
-    """Check today's milestones and trigger outreach workflow for each."""
-    import httpx
-    from datetime import date
-
-    today = date.today()
+    """每个活跃 IR 的投资人今日生日/入职纪念日 → 生成 milestone 草稿（进程内跑，无人工审核）。"""
+    import asyncio, os, sys
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+    from agent.scheduled import run_milestone_outreach_for_all_irs
     try:
-        resp = httpx.get(
-            f"{_API_BASE}/api/calendar/daily",
-            params={"date": today.isoformat()},
-            headers={"X-Celery-Internal": "1"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        events = resp.json().get("events", [])
-        for event in events:
-            if event.get("type") in ("birthday", "join_agency"):
-                httpx.post(
-                    f"{_API_BASE}/api/agent/run",
-                    json={
-                        "task_type": "milestone_outreach",
-                        "investor_id": event["investor_id"],
-                        "milestone_type": event["type"],
-                        "ir_name": "IR",
-                    },
-                    headers={"X-Celery-Internal": "1"},
-                    timeout=10,
-                )
+        return asyncio.run(run_milestone_outreach_for_all_irs())
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300, max_retries=3)

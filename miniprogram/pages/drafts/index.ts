@@ -56,7 +56,9 @@ Page<PageData, {}>({
   },
 
   _touchStartX: 0,
+  _touchStartY: 0,
   _touchingId: 0,
+  _didSwipe: false,
 
   onLoad() {
     this._load();
@@ -90,6 +92,12 @@ Page<PageData, {}>({
 
   onItemTap(e: WechatMiniprogram.TouchEvent) {
     const item = e.currentTarget.dataset.item as any;
+    // 刚刚发生过滑动 → 忽略这次 tap（基础库会在滑动后仍补发 tap，
+    // 否则会把刚露出的删除按钮立刻收起，看起来像"左滑无效"）
+    if (this._didSwipe) {
+      this._didSwipe = false;
+      return;
+    }
     // 当前有露删除按钮的卡片，点 card 先收起，不弹 modal
     if (this.data.swipeOpenId) {
       this.setData({ swipeOpenId: 0 });
@@ -105,18 +113,23 @@ Page<PageData, {}>({
 
   onTouchStart(e: WechatMiniprogram.TouchEvent) {
     this._touchStartX = e.touches[0].clientX;
+    this._touchStartY = e.touches[0].clientY;
     this._touchingId = Number(e.currentTarget.dataset.id);
+    this._didSwipe = false;
   },
 
-  onTouchEnd(e: WechatMiniprogram.TouchEvent) {
-    const dx = e.changedTouches[0].clientX - this._touchStartX;
+  // 用 touchmove 实时判定，比 touchend 比较更可靠（兼容基础库 tap 行为变化）
+  onTouchMove(e: WechatMiniprogram.TouchEvent) {
+    const dx = e.touches[0].clientX - this._touchStartX;
+    const dy = e.touches[0].clientY - this._touchStartY;
+    // 横向位移占主导才判定为滑动，避免和竖直滚动冲突
+    if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < 30) return;
+    this._didSwipe = true;
     const id = this._touchingId;
-    if (dx < -40) {
-      // 左滑超过阈值 → 露删除按钮
-      this.setData({ swipeOpenId: id });
-    } else if (dx > 40 && this.data.swipeOpenId === id) {
-      // 右滑收起
-      this.setData({ swipeOpenId: 0 });
+    if (dx < 0 && this.data.swipeOpenId !== id) {
+      this.setData({ swipeOpenId: id });   // 左滑露删除
+    } else if (dx > 0 && this.data.swipeOpenId === id) {
+      this.setData({ swipeOpenId: 0 });    // 右滑收起
     }
   },
 

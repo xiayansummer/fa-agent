@@ -147,11 +147,12 @@ class TencentMeetingClient:
 
     async def list_ended_meetings(
         self,
-        start_time: str,
-        end_time: str,
+        start_time: int,
+        end_time: int,
         page_size: int = 20,
     ) -> list[dict]:
-        """已结束的会议（最近 N 天，最多 31 天范围）。"""
+        """已结束的会议（最近 N 天）。start_time/end_time 必须是 Unix 整数时间戳，
+        传字符串会被腾讯静默把窗口偏移，最近一两天的会议会拿不到。"""
         result = await self._call("get_user_ended_meetings", {
             "start_time": start_time,
             "end_time": end_time,

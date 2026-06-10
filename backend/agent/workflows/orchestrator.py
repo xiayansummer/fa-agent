@@ -9,6 +9,7 @@ state.final 是结构化 JSON 字符串：
 from __future__ import annotations
 import json
 import logging
+import re
 from datetime import date, datetime, timedelta
 from sqlalchemy import select, func
 from langgraph.graph import StateGraph, START, END
@@ -133,8 +134,13 @@ async def synthesize_briefing_node(state: AgentState) -> dict:
         }
 
     # 校验 Claude 输出是合法 JSON；不是则降级
+    # minimax 等模型常把 JSON 包在 ```json ... ``` 里，先剥掉围栏
+    cleaned = draft.strip()
+    _m = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL)
+    if _m:
+        cleaned = _m.group(1).strip()
     try:
-        parsed = json.loads(draft.strip())
+        parsed = json.loads(cleaned)
         if not isinstance(parsed, dict) or "greeting" not in parsed:
             raise ValueError("missing greeting")
         # 规范化字段
@@ -143,8 +149,14 @@ async def synthesize_briefing_node(state: AgentState) -> dict:
         final = json.dumps(parsed, ensure_ascii=False)
     except Exception as e:
         logger.warning("orchestrator briefing JSON parse failed: %s. raw=%s", e, draft[:300])
+        # 解析失败别回显原始 JSON 片段（曾出现 greeting 显示成 "{"）；
+        # 用 signals 拼一句正常问候。
+        ir_name = sig.get("ir_name") or ""
+        pending = sig.get("pending_count", 0)
+        greet = f"早上好{('，' + ir_name) if ir_name and ir_name != 'IR' else ''}！"
+        greet += f"今日有 {pending} 个待审草稿。" if pending else "今天有什么我可以帮你的？"
         final = json.dumps({
-            "greeting": draft.strip().splitlines()[0][:80] if draft else "今日无 Agent 安排",
+            "greeting": greet,
             "highlights": [],
             "suggested_actions": [],
         }, ensure_ascii=False)

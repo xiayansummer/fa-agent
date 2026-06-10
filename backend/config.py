@@ -14,8 +14,10 @@ class Settings(BaseSettings):
     jwt_expire_days: int = 7
 
     ai_api_key: str
-    ai_base_url: str = "https://api.anthropic.com/v1"
-    ai_model: str = "claude-sonnet-4-6"
+    ai_base_url: str = "https://opencode.ai/zen/go/v1"
+    ai_model: str = "minimax-m2.7"
+    # 名片/图片需要视觉能力，minimax 不支持，单独用多模态模型（同 opencode 端点+key）
+    vision_model: str = "qwen3.6-plus"
 
     # ASR：DashScope Qwen3-ASR-Flash via OpenAI-compatible /audio/transcriptions
     asr_api_key: str = ""

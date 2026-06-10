@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
 from models.ir_users import IRUser
-from auth.wechat import exchange_code_for_session, decrypt_user_data
+from auth.wechat import exchange_code_for_session, decrypt_user_data, validate_watermark
 from auth.jwt import create_token
 from redis_client import get_redis
+from services import crypto_service
 
 router = APIRouter()
 
@@ -56,12 +57,11 @@ async def wechat_login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     # openid not bound yet — start phone-binding flow
     login_session = uuid4().hex
     redis = await get_redis()
-    # TODO(security): session_key is sensitive (can decrypt all WeChat user data).
-    # For production hardening, encrypt with services.crypto_service before Redis storage.
+    encrypted_session_key = crypto_service.encrypt(session_key).decode()
     await redis.setex(
         f"auth:session:{login_session}",
         600,
-        json.dumps({"openid": openid, "session_key": session_key}),
+        json.dumps({"openid": openid, "session_key_encrypted": encrypted_session_key}),
     )
     return NeedBindingResponse(login_session=login_session)
 
@@ -75,12 +75,14 @@ async def bind_phone(body: BindPhoneRequest, db: AsyncSession = Depends(get_db))
 
     session_data = json.loads(raw)
     openid = session_data["openid"]
-    session_key = session_data["session_key"]
+    encrypted_session_key = session_data.get("session_key_encrypted")
+    if not encrypted_session_key:
+        raise HTTPException(status_code=400, detail="登录会话格式无效，请重新登录")
 
     try:
-        # TODO(security): WeChat recommends validating watermark.appid and watermark.timestamp
-        # in the decrypted payload to prevent replay across apps. Acceptable risk for MVP.
+        session_key = crypto_service.decrypt(encrypted_session_key.encode())
         data = decrypt_user_data(body.encryptedData, body.iv, session_key)
+        validate_watermark(data)
         phone = data["phoneNumber"]
     except Exception as exc:
         raise HTTPException(status_code=400, detail="解密失败") from exc

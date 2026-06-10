@@ -70,6 +70,7 @@
       <view class="i-head">
         <view class="i-date">[{{item.dateLabel}}]</view>
         <view class="i-type">{{item.typeLabel}}</view>
+        <view class="i-del" catchtap="onDeleteInteraction" data-id="{{item.id}}">删除</view>
       </view>
       <view class="i-summary">{{item.summary || '（无摘要）'}}</view>
     </view>
