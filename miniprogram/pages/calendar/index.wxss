@@ -1,5 +1,5 @@
 .calendar { padding: 32rpx; min-height: 100vh; background: var(--bg-base); }
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32rpx; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24rpx; }
 .title { font-size: 36rpx; font-weight: 700; }
 .avatar {
   width: 64rpx; height: 64rpx; border-radius: 50%;
@@ -8,50 +8,137 @@
   font-size: 28rpx; font-weight: 600;
 }
 
-.month-nav {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #fff; border-radius: 16rpx; padding: 24rpx;
-  margin-bottom: 16rpx;
+/* ===== 月历卡片（参考投资日历样式） ===== */
+.month-card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 24rpx 16rpx 20rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+
+.month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12rpx 8rpx;
+}
+.month-box { display: inline-flex; flex-direction: column; align-items: center; }
+.year-badge {
+  background: var(--agent-orchestrator);
+  color: #fff;
+  font-size: 22rpx;
+  font-weight: 600;
+  padding: 2rpx 16rpx;
+  border-radius: 8rpx 8rpx 0 0;
+  line-height: 1.5;
+}
+.month-row { display: flex; align-items: center; gap: 8rpx; }
+.month-big {
+  font-size: 40rpx;
+  font-weight: 700;
+  padding: 4rpx 8rpx 0;
+  border: 1rpx solid var(--border-light);
+  border-top: none;
+  border-radius: 0 0 10rpx 10rpx;
+  line-height: 1.3;
 }
 .arrow {
-  width: 60rpx; height: 60rpx; line-height: 56rpx; text-align: center;
-  font-size: 40rpx; color: var(--text-secondary);
+  width: 52rpx; height: 52rpx;
+  line-height: 48rpx; text-align: center;
+  font-size: 36rpx; color: var(--text-secondary);
+  background: #f5f5f7;
+  border-radius: 50%;
 }
-.month-label { font-size: 32rpx; font-weight: 600; }
-
-.weekdays { display: grid; grid-template-columns: repeat(7, 1fr); padding: 16rpx; background: #fff; border-radius: 16rpx 16rpx 0 0; }
-.wd { text-align: center; color: var(--text-secondary); font-size: 24rpx; padding: 16rpx 0; }
-.days { display: grid; grid-template-columns: repeat(7, 1fr); background: #fff; border-radius: 0 0 16rpx 16rpx; padding: 0 16rpx 16rpx; }
-.day {
-  aspect-ratio: 1;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  position: relative;
-  font-size: 28rpx;
-}
-.day.gray { color: #ccc; }
-.day.today .day-num {
-  background: var(--agent-orchestrator); color: #fff;
-  width: 56rpx; height: 56rpx; line-height: 56rpx; border-radius: 50%;
-  text-align: center;
-}
-.day-num { padding: 8rpx 0; }
-.dots { display: flex; gap: 4rpx; height: 12rpx; margin-top: 4rpx; }
-.dot { width: 8rpx; height: 8rpx; border-radius: 50%; }
+.arrow:active { background: #e5e7eb; }
 
 .legend {
-  display: flex; flex-wrap: wrap; gap: 24rpx;
-  padding: 24rpx 0; font-size: 22rpx; color: var(--text-secondary);
+  display: flex; flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12rpx 16rpx;
+  max-width: 360rpx;
+  font-size: 20rpx; color: var(--text-secondary);
 }
-.lg-item { display: flex; align-items: center; gap: 8rpx; }
-.lg-dot { width: 12rpx; height: 12rpx; border-radius: 50%; }
+.lg-item { display: flex; align-items: center; gap: 6rpx; }
+.lg-dot { width: 10rpx; height: 10rpx; border-radius: 50%; }
 
-.today-section { margin-top: 32rpx; }
-.today-title { font-size: 28rpx; font-weight: 600; margin-bottom: 16rpx; }
+.weekdays { display: grid; grid-template-columns: repeat(7, 1fr); padding: 8rpx 0 0; }
+.wd { text-align: center; color: var(--text-secondary); font-size: 24rpx; padding: 12rpx 0; }
+
+.days { display: grid; grid-template-columns: repeat(7, 1fr); }
+.day {
+  aspect-ratio: 0.9;
+  display: flex; flex-direction: column; align-items: center;
+  padding-top: 10rpx;
+  font-size: 30rpx;
+}
+.day.gray { color: #c9cdd4; }
+.day.gray .dot { opacity: 0.45; }
+.day-num {
+  width: 60rpx; height: 60rpx; line-height: 60rpx;
+  text-align: center;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.day.selected .day-num {
+  border: 2rpx solid var(--agent-orchestrator);
+  color: var(--agent-orchestrator);
+  font-weight: 600;
+}
+.day.today .day-num {
+  background: var(--agent-orchestrator);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+.dots { display: flex; gap: 6rpx; height: 12rpx; margin-top: 6rpx; }
+.dot { width: 10rpx; height: 10rpx; border-radius: 50%; }
+
+/* ===== 选中日期事件列表 ===== */
+.day-section { margin-top: 28rpx; }
+.ds-head {
+  display: flex; align-items: baseline; gap: 16rpx;
+  margin-bottom: 16rpx;
+}
+.ds-title { font-size: 32rpx; font-weight: 700; }
+.ds-sub { flex: 1; font-size: 24rpx; color: var(--text-secondary); }
+.ds-add {
+  flex-shrink: 0;
+  background: #EC4899; color: #fff;
+  font-size: 24rpx; font-weight: 500;
+  padding: 10rpx 22rpx; border-radius: 999rpx;
+}
+.ds-add:active { opacity: 0.85; }
+
+.empty {
+  background: #fff; border-radius: 16rpx;
+  text-align: center; color: var(--text-secondary);
+  font-size: 26rpx; padding: 48rpx 0;
+}
+
 .event-card {
   background: #fff; border-radius: 16rpx; padding: 24rpx;
-  display: flex; gap: 20rpx; margin-bottom: 16rpx;
+  display: flex; align-items: center; gap: 20rpx; margin-bottom: 16rpx;
 }
-.event-time { color: var(--text-secondary); font-size: 28rpx; min-width: 96rpx; }
-.event-body { flex: 1; }
-.event-title { font-size: 28rpx; font-weight: 500; }
-.event-desc { font-size: 24rpx; color: var(--text-secondary); margin-top: 8rpx; }
+.event-card:active { background: #fafafa; }
+.event-time { color: var(--text-secondary); font-size: 26rpx; min-width: 88rpx; font-family: monospace; }
+.event-body { flex: 1; min-width: 0; }
+.event-row { display: flex; align-items: center; gap: 12rpx; }
+.event-tag {
+  flex-shrink: 0;
+  color: #fff; font-size: 20rpx;
+  padding: 2rpx 12rpx; border-radius: 6rpx;
+}
+.event-title {
+  font-size: 28rpx; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.event-desc {
+  font-size: 24rpx; color: var(--text-secondary); margin-top: 8rpx;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.event-go { color: #c9cdd4; font-size: 36rpx; flex-shrink: 0; }
+
+.ds-more {
+  text-align: center; color: var(--agent-orchestrator);
+  font-size: 26rpx; padding: 8rpx 0 24rpx;
+}

@@ -4,50 +4,71 @@
     <view class="avatar" bindtap="goMe">我</view>
   </view>
 
-  <view class="month-nav">
-    <view class="arrow" bindtap="prevMonth">‹</view>
-    <view class="month-label">{{monthLabel}}</view>
-    <view class="arrow" bindtap="nextMonth">›</view>
-  </view>
+  <!-- 月历卡片：年牌 + 月份切换 + 图例 + 星期 + 日期网格 -->
+  <view class="month-card">
+    <view class="month-head">
+      <view class="month-box">
+        <view class="year-badge">{{currentYear}}</view>
+        <view class="month-row">
+          <view class="arrow" bindtap="prevMonth">‹</view>
+          <view class="month-big">{{monthNum2}}月</view>
+          <view class="arrow" bindtap="nextMonth">›</view>
+        </view>
+      </view>
+      <view class="legend">
+        <view class="lg-item"><view class="lg-dot" style="background: #6B7AFF"></view>跟进</view>
+        <view class="lg-item"><view class="lg-dot" style="background: #10B981"></view>会议</view>
+        <view class="lg-item"><view class="lg-dot" style="background: #F59E0B"></view>里程碑</view>
+        <view class="lg-item"><view class="lg-dot" style="background: #EC4899"></view>日程</view>
+      </view>
+    </view>
 
-  <view class="weekdays">
-    <view class="wd" wx:for="{{['日','一','二','三','四','五','六']}}" wx:key="*this">{{item}}</view>
-  </view>
+    <view class="weekdays">
+      <view class="wd" wx:for="{{['一','二','三','四','五','六','日']}}" wx:key="*this">{{item}}</view>
+    </view>
 
-  <view class="days">
-    <view
-      wx:for="{{dayCells}}"
-      wx:key="date"
-      class="day {{item.inMonth ? '' : 'gray'}} {{item.isToday ? 'today' : ''}}"
-      data-date="{{item.date}}"
-      bindtap="onDayTap">
-      <view class="day-num">{{item.day}}</view>
-      <view class="dots">
-        <view
-          wx:for="{{item.colors}}"
-          wx:for-item="color"
-          wx:key="*this"
-          class="dot"
-          style="background: {{color}}"></view>
+    <view class="days">
+      <view
+        wx:for="{{dayCells}}"
+        wx:key="date"
+        class="day {{item.inMonth ? '' : 'gray'}} {{item.isToday ? 'today' : ''}} {{item.date === selectedDate ? 'selected' : ''}}"
+        data-date="{{item.date}}"
+        bindtap="onDayTap">
+        <view class="day-num">{{item.day}}</view>
+        <view class="dots">
+          <view
+            wx:for="{{item.colors}}"
+            wx:for-item="color"
+            wx:key="*this"
+            class="dot"
+            style="background: {{color}}"></view>
+        </view>
       </view>
     </view>
   </view>
 
-  <view class="legend">
-    <view class="lg-item"><view class="lg-dot" style="background: #6B7AFF"></view>跟进</view>
-    <view class="lg-item"><view class="lg-dot" style="background: #10B981"></view>会议</view>
-    <view class="lg-item"><view class="lg-dot" style="background: #F59E0B"></view>里程碑</view>
-    <view class="lg-item"><view class="lg-dot" style="background: #8B5CF6"></view>推送</view>
-  </view>
+  <!-- 选中日期的事件列表 -->
+  <view class="day-section">
+    <view class="ds-head">
+      <view class="ds-title">事件</view>
+      <view class="ds-sub">{{selectedDate}}（{{selLabel}}）</view>
+      <view class="ds-add" bindtap="onAddSchedule">＋ 新建日程</view>
+    </view>
 
-  <view class="today-section" wx:if="{{todayEvents.length > 0}}">
-    <view class="today-title">今日预览</view>
-    <view class="event-card" wx:for="{{todayEvents}}" wx:key="title">
+    <view class="empty" wx:if="{{selEvents.length === 0}}">这一天暂无安排</view>
+
+    <view class="event-card" wx:for="{{selEvents}}" wx:key="event_key" bindtap="onEventTap">
       <view class="event-time">{{item.time}}</view>
       <view class="event-body">
-        <view class="event-title">{{item.title}}</view>
+        <view class="event-row">
+          <view class="event-tag" style="background: {{item.typeColor}}">{{item.typeLabel}}</view>
+          <view class="event-title">{{item.title}}</view>
+        </view>
         <view class="event-desc">{{item.description}}</view>
       </view>
+      <view class="event-go">›</view>
     </view>
+
+    <view class="ds-more" wx:if="{{selEvents.length > 0}}" bindtap="goDayDetail">管理这一天（执行 / 删除 / 编辑）→</view>
   </view>
 </view>
