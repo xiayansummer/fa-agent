@@ -24,6 +24,9 @@ class AgentState(TypedDict):
     # Smart list inputs
     criteria: Optional[str]
     candidate_ids: Optional[list[int]]
+    # Smart list（方向A 机构名单）中间态：候选机构名列表 / 企名片证据文本
+    agency_candidates: Optional[list]
+    agency_evidence: Optional[str]
 
     # Milestone outreach inputs
     investor_id: Optional[int]

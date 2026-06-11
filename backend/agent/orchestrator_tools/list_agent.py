@@ -10,12 +10,14 @@ TOOLS = [
         "function": {
             "name": "start_smart_list_workflow",
             "description": (
-                "启动「候选投资人推荐」工作流（List Agent）。按 criteria（行业/阶段/关注领域等）"
-                "从企名片+本地库捞候选并排序。"
+                "启动「投资机构名单推荐」工作流（List Agent）。当 IR 说「给 XX 项目出个名单/推荐机构」时调用。"
+                "candidates 来自企名片全公司活跃对接池 + 共享投资人库（不限于当前 IR 自己的人脉），"
+                "按企名片纪要/历史推荐/标签等证据为项目精排出机构名单，并标注本所已有联系人。"
+                "criteria 请把 IR 提到的关键信息都带上：行业赛道、融资阶段/轮次、金额、商业模式、地域等。"
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"criteria": {"type": "string"}},
+                "properties": {"criteria": {"type": "string", "description": "项目需求描述（赛道/阶段/金额/特殊要求），尽量完整"}},
                 "required": ["criteria"],
             },
         },

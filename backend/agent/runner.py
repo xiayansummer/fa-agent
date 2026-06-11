@@ -85,7 +85,22 @@ async def run(task_type: str, initial_state: dict, thread_id: str) -> None:
         })
     except Exception as exc:
         logger.exception("agent runner failed thread=%s", thread_id)
+        await _mark_failed(thread_id, exc)
         await publish(thread_id, {"type": "error", "message": str(exc)})
+
+
+async def _mark_failed(thread_id: str, exc: Exception) -> None:
+    """失败状态落 Redis：WS error 事件是 pub/sub、没人订阅就丢了，
+    /state 兜底接口必须能看到失败，否则前端对失败的 thread 永远显示 running。"""
+    try:
+        from redis_client import get_redis
+        redis = await get_redis()
+        # str(asyncio.TimeoutError()) 是空串——必须兜底类型名，否则 /state 的
+        # truthiness 检查会漏掉这个 error key（2026-06-11 踩过）
+        msg = str(exc).strip() or type(exc).__name__
+        await redis.set(f"agent:thread:{thread_id}:error", msg[:500], ex=86400)
+    except Exception:
+        logger.warning("mark_failed: redis write failed thread=%s", thread_id)
 
 
 async def resume(task_type: str, thread_id: str, ir_decision: dict) -> None:
@@ -118,4 +133,5 @@ async def resume(task_type: str, thread_id: str, ir_decision: dict) -> None:
         })
     except Exception as exc:
         logger.exception("agent runner failed thread=%s", thread_id)
+        await _mark_failed(thread_id, exc)
         await publish(thread_id, {"type": "error", "message": str(exc)})

@@ -33,6 +33,7 @@ async def start_workflow(ir_id: int, task_type: str, state_overrides: dict) -> d
         "investor_ids": None, "investor_profiles": None,
         "target_date": None, "events": None,
         "criteria": None, "candidate_ids": None,
+        "agency_candidates": None, "agency_evidence": None,
         "investor_id": None, "milestone_type": None, "ir_name": None,
         "draft": None, "final": None, "ir_action": None,
         "prompt_version": None, "skills_called": [], "error": None,

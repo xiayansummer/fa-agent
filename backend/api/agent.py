@@ -133,6 +133,8 @@ async def start_workflow(
         "events": None,
         "criteria": request.criteria,
         "candidate_ids": request.candidate_ids,
+        "agency_candidates": None,
+        "agency_evidence": None,
         "investor_id": request.investor_id,
         "milestone_type": request.milestone_type,
         "ir_name": request.ir_name,
@@ -247,6 +249,12 @@ async def get_thread_state(
         raise HTTPException(status_code=404, detail="Thread not found")
     if str(owner) != str(current_ir["ir_id"]):
         raise HTTPException(status_code=403, detail="forbidden")
+
+    # runner 失败时会写入 error 标记（WS error 事件可能没人订阅），优先返回，
+    # 否则失败的 thread 在这里会被推断成 running、前端永远转圈
+    err = await redis.get(f"agent:thread:{thread_id}:error")
+    if err is not None:
+        return StateResponse(status="error", error=str(err) or "工作流执行失败")
 
     # Get task_type to know which graph to query
     task_type = await redis.get(f"agent:thread:{thread_id}:type")
