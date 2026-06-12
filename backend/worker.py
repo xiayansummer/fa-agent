@@ -34,6 +34,8 @@ celery_app = Celery(
 )
 
 celery_app.conf.task_routes = {
+    # ⚠️ worker 启动是 -Q default,content —— 没路由的任务会掉进 celery 默认队列没人消费
+    "worker.trigger_schedule_reminders": {"queue": "content"},
     "worker.trigger_daily_push": {"queue": "content"},
     "worker.trigger_milestone_outreach": {"queue": "content"},
     "worker.dispatch_outreach": {"queue": "content"},

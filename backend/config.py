@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # 日程提醒订阅消息模板（小程序后台「订阅消息」里选的"日程提醒"类模板）
     wx_schedule_tmpl_id: str = "J1qIizvW8rJkrD4CZfKK6ldUcuOB3E6kiERojkOYXjU"
+    # 点击服务通知打开哪个版本：developer/trial/formal。上线正式版后改 formal（.env 可覆盖）
+    wx_miniprogram_state: str = "trial"
 
     tavily_api_key: str
 

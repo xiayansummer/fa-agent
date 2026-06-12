@@ -89,7 +89,7 @@ async def send_schedule_reminder(
             "thing11": {"value": _clip(investor_name or "—")},
             "thing3": {"value": _clip(location or "—")},
         },
-        "miniprogram_state": "formal",
+        "miniprogram_state": settings.wx_miniprogram_state,
         "lang": "zh_CN",
     }
     async with httpx.AsyncClient(timeout=10) as client:
