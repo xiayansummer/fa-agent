@@ -2,6 +2,16 @@ import { api } from '../../services/api';
 import { formatDate } from '../../utils/time';
 import { bankScheduleSubscribe } from '../../utils/subscribe';
 
+const REMIND_OPTIONS = [
+  { value: -1, label: '不提醒' },
+  { value: 5, label: '提前 5 分钟' },
+  { value: 15, label: '提前 15 分钟' },
+  { value: 30, label: '提前 30 分钟' },
+  { value: 60, label: '提前 1 小时' },
+  { value: 120, label: '提前 2 小时' },
+  { value: 1440, label: '提前 1 天' },
+];
+
 interface PageData {
   eventId: number;        // 0 = 新建
   title: string;
@@ -12,6 +22,8 @@ interface PageData {
   notes: string;
   saving: boolean;
   isEdit: boolean;
+  remindIdx: number;
+  remindLabels: string[];
 }
 
 Page<PageData, {}>({
@@ -25,6 +37,8 @@ Page<PageData, {}>({
     notes: '',
     saving: false,
     isEdit: false,
+    remindIdx: 3,  // 默认提前 30 分钟
+    remindLabels: REMIND_OPTIONS.map(o => o.label),
   },
 
   onLoad(opts: { date?: string; id?: string }) {
@@ -40,6 +54,9 @@ Page<PageData, {}>({
   async _load(id: number) {
     try {
       const e = await api.get<any>(`/api/calendar/events/${id}`);
+      const ahead = (e.remind_ahead_min === null || e.remind_ahead_min === undefined) ? 30 : e.remind_ahead_min;
+      let remindIdx = REMIND_OPTIONS.findIndex(o => o.value === ahead);
+      if (remindIdx < 0) remindIdx = 3;
       this.setData({
         title: e.title || '',
         date: e.date || formatDate(new Date()),
@@ -47,6 +64,7 @@ Page<PageData, {}>({
         endTime: e.end_time || '',
         location: e.location || '',
         notes: e.notes || '',
+        remindIdx,
       });
     } catch (_e) {
       wx.showToast({ title: '加载失败', icon: 'none' });
@@ -61,6 +79,9 @@ Page<PageData, {}>({
   onStartChange(e: WechatMiniprogram.PickerChange) { this.setData({ startTime: e.detail.value as string }); },
   onEndChange(e: WechatMiniprogram.PickerChange) { this.setData({ endTime: e.detail.value as string }); },
   clearStart() { this.setData({ startTime: '', endTime: '' }); },
+  onRemindChange(e: WechatMiniprogram.PickerChange) {
+    this.setData({ remindIdx: Number(e.detail.value) });
+  },
   clearEnd() { this.setData({ endTime: '' }); },
 
   async onSave() {
@@ -79,6 +100,7 @@ Page<PageData, {}>({
       end_time: this.data.endTime || null,
       location: this.data.location.trim() || null,
       notes: this.data.notes.trim() || null,
+      remind_ahead_min: REMIND_OPTIONS[this.data.remindIdx].value,
     };
     try {
       if (this.data.isEdit) {

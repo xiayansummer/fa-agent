@@ -497,6 +497,7 @@ class ScheduleIn(BaseModel):
     investor_id: Optional[int] = None
     location: Optional[str] = None
     notes: Optional[str] = None
+    remind_ahead_min: Optional[int] = None  # None=默认30；-1=不提醒；5/15/30/60/120/1440
 
 
 def _norm_hm(v: Optional[str]) -> Optional[str]:
@@ -524,6 +525,7 @@ def _schedule_row_out(row: CalendarEventRow) -> dict:
         "location": row.location,
         "notes": row.notes,
         "source": row.source,
+        "remind_ahead_min": row.remind_ahead_min,
     }
 
 
@@ -569,6 +571,7 @@ async def create_schedule_event(
         location=(body.location or "").strip() or None,
         notes=(body.notes or "").strip() or None,
         source="manual",
+        remind_ahead_min=body.remind_ahead_min,
     )
     db.add(row)
     await db.commit()
@@ -604,6 +607,9 @@ async def update_schedule_event(
     row.investor_id = body.investor_id or None
     row.location = (body.location or "").strip() or None
     row.notes = (body.notes or "").strip() or None
+    if row.remind_ahead_min != body.remind_ahead_min:
+        row.remind_ahead_min = body.remind_ahead_min
+        row.reminded_at = None  # 改了提醒设置 → 允许按新设置重发
     await db.commit()
     await db.refresh(row)
     return {"ok": True, **_schedule_row_out(row)}

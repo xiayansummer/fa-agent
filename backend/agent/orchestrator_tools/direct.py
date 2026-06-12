@@ -360,6 +360,8 @@ TOOLS = [
                 "只有用户明确说要『开腾讯会议/视频会议/在线会议』时才用 schedule_tencent_meeting。"
                 "date 必填（YYYY-MM-DD）；start_time/end_time 选填（HH:MM，不传则全天）；"
                 "investor_id 选填（与某投资人相关时传，否则不传）；location/notes 选填。"
+                "remind_ahead_min 选填：提前提醒分钟数（IR 说『提前一小时提醒』传 60、『提前一天』传 1440、"
+                "『不用提醒』传 -1；不说就不传，默认提前 30 分钟）。"
             ),
             "parameters": {
                 "type": "object",
@@ -371,6 +373,7 @@ TOOLS = [
                     "investor_id": {"type": "integer", "description": "相关投资人 ID，选填"},
                     "location":    {"type": "string", "description": "地点，选填"},
                     "notes":       {"type": "string", "description": "备注，选填"},
+                    "remind_ahead_min": {"type": "integer", "description": "提前提醒分钟数，-1=不提醒，不传=默认30"},
                 },
                 "required": ["title", "date"],
             },
@@ -1140,6 +1143,11 @@ async def _add_calendar_event(args: dict, ctx: ToolCtx) -> dict:
             return {"error": f"investor_id={inv_id} 不存在"}
         inv_name = inv.name
 
+    ahead = args.get("remind_ahead_min")
+    try:
+        ahead = int(ahead) if ahead is not None else None
+    except (TypeError, ValueError):
+        ahead = None
     row = CalendarEventRow(
         ir_id=ctx.ir_id,
         investor_id=inv_id or None,
@@ -1150,6 +1158,7 @@ async def _add_calendar_event(args: dict, ctx: ToolCtx) -> dict:
         location=(args.get("location") or "").strip() or None,
         notes=(args.get("notes") or "").strip() or None,
         source="agent",
+        remind_ahead_min=ahead,
     )
     ctx.db.add(row)
     await ctx.db.commit()
@@ -1161,6 +1170,8 @@ async def _add_calendar_event(args: dict, ctx: ToolCtx) -> dict:
         "date": date_str,
         "start_time": start_time or "全天",
         "investor_name": inv_name,
+        "remind": ("不提醒" if (ahead is not None and ahead < 0)
+                   else f"提前{ahead}分钟" if ahead else "默认提前30分钟（有时间的日程）"),
     }
 
 

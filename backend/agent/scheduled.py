@@ -146,29 +146,35 @@ async def run_schedule_reminders() -> dict:
     from services.wx_notify import send_schedule_reminder
 
     now = datetime.now(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
-    window_end = now + timedelta(minutes=30)
     # no_quota=本地没攒配额/没openid；wx_43101=调到微信但用户侧无真实订阅授权
     summary = {"checked": 0, "sent": 0, "no_quota": 0, "wx_43101": 0, "failed": 0}
 
     async with AsyncSessionLocal() as db:
+        # 扫今明两天：remind_ahead_min 最大档"1天前"，明天的日程提醒时刻可能落在今天
         rows = (await db.execute(
             select(CalendarEventRow).where(
                 CalendarEventRow.reminded_at.is_(None),
                 CalendarEventRow.start_time.is_not(None),
-                CalendarEventRow.event_date.in_([now.date(), window_end.date()]),
+                CalendarEventRow.event_date.in_([
+                    now.date(), (now + timedelta(days=1)).date(),
+                ]),
             )
         )).scalars().all()
 
         due = []
         for ev in rows:
+            ahead = ev.remind_ahead_min if ev.remind_ahead_min is not None else 30
+            if ahead < 0:
+                continue  # -1 = 这条不提醒
             try:
                 h, m = ev.start_time.split(":")
                 ev_dt = datetime.combine(ev.event_date, datetime.min.time()).replace(
                     hour=int(h), minute=int(m))
             except (ValueError, AttributeError):
                 continue
-            # 已经开始超过 2 分钟的不再提醒（错过窗口），未来 30 分钟内的提醒
-            if now - timedelta(minutes=2) <= ev_dt <= window_end:
+            remind_at = ev_dt - timedelta(minutes=ahead)
+            # 到了该提醒的时刻就发；事件开始超过 2 分钟仍未发的视为错过、不再补发
+            if remind_at <= now <= ev_dt + timedelta(minutes=2):
                 due.append((ev, ev_dt))
         summary["checked"] = len(due)
         if not due:

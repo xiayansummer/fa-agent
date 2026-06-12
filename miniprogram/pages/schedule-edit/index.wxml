@@ -31,6 +31,13 @@
     </view>
   </view>
 
+  <view class="field" wx:if="{{startTime}}">
+    <view class="label">提醒</view>
+    <picker mode="selector" range="{{remindLabels}}" value="{{remindIdx}}" bindchange="onRemindChange">
+      <view class="picker-val">{{remindLabels[remindIdx]}}</view>
+    </picker>
+  </view>
+
   <view class="field">
     <view class="label">地点</view>
     <input class="input" value="{{location}}" bindinput="onLocationInput" placeholder="可选" />
