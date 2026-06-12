@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     asr_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     asr_model: str = "qwen3-asr-flash"
 
+    # 日程提醒订阅消息模板（小程序后台「订阅消息」里选的"日程提醒"类模板）
+    wx_schedule_tmpl_id: str = "J1qIizvW8rJkrD4CZfKK6ldUcuOB3E6kiERojkOYXjU"
+
     tavily_api_key: str
 
     qmingpian_token: str  # open_id for Investarget/企名片 API

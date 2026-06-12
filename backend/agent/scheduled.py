@@ -129,3 +129,107 @@ async def run_milestone_outreach_for_all_irs(target_date: str | None = None) -> 
                 logger.exception("scheduled milestone failed ir=%s inv=%s", ir_id, investor_id)
     logger.info("scheduled milestone_outreach done: %s", summary)
     return summary
+
+
+async def run_schedule_reminders() -> dict:
+    """日程提醒：扫 calendar_events 里「未来 30 分钟内开始、未提醒、IR 有订阅配额」的日程，
+    发微信订阅消息（服务通知），发完打 reminded_at 标记并扣配额。
+
+    时间基准：用户填的 event_date/start_time 是北京墙上时间，容器可能是 UTC，
+    所以这里显式用 Asia/Shanghai 计算"现在"，不依赖容器时区。
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from config import settings
+    from models.calendar_events import CalendarEventRow
+    from models.wx_sub_quota import WxSubQuota
+    from services.wx_notify import send_schedule_reminder
+
+    now = datetime.now(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
+    window_end = now + timedelta(minutes=30)
+    # no_quota=本地没攒配额/没openid；wx_43101=调到微信但用户侧无真实订阅授权
+    summary = {"checked": 0, "sent": 0, "no_quota": 0, "wx_43101": 0, "failed": 0}
+
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(CalendarEventRow).where(
+                CalendarEventRow.reminded_at.is_(None),
+                CalendarEventRow.start_time.is_not(None),
+                CalendarEventRow.event_date.in_([now.date(), window_end.date()]),
+            )
+        )).scalars().all()
+
+        due = []
+        for ev in rows:
+            try:
+                h, m = ev.start_time.split(":")
+                ev_dt = datetime.combine(ev.event_date, datetime.min.time()).replace(
+                    hour=int(h), minute=int(m))
+            except (ValueError, AttributeError):
+                continue
+            # 已经开始超过 2 分钟的不再提醒（错过窗口），未来 30 分钟内的提醒
+            if now - timedelta(minutes=2) <= ev_dt <= window_end:
+                due.append((ev, ev_dt))
+        summary["checked"] = len(due)
+        if not due:
+            return summary
+
+        ir_ids = {ev.ir_id for ev, _ in due}
+        users = (await db.execute(
+            select(IRUser).where(IRUser.id.in_(ir_ids))
+        )).scalars().all()
+        openid_by_ir = {u.id: u.wechat_openid for u in users if u.wechat_openid}
+        quotas = (await db.execute(
+            select(WxSubQuota).where(
+                WxSubQuota.ir_id.in_(ir_ids),
+                WxSubQuota.template_id == settings.wx_schedule_tmpl_id,
+            )
+        )).scalars().all()
+        quota_by_ir = {q.ir_id: q for q in quotas}
+
+        # 关联投资人名（模板 thing11「客户名称」字段）
+        inv_ids = {ev.investor_id for ev, _ in due if ev.investor_id}
+        inv_name_by_id: dict[int, str] = {}
+        if inv_ids:
+            inv_rows = (await db.execute(
+                select(Investor).where(Investor.id.in_(inv_ids))
+            )).scalars().all()
+            inv_name_by_id = {i.id: i.name for i in inv_rows}
+
+        for ev, ev_dt in due:
+            openid = openid_by_ir.get(ev.ir_id)
+            quota = quota_by_ir.get(ev.ir_id)
+            if not openid or not quota or (quota.times or 0) <= 0:
+                summary["no_quota"] += 1
+                continue
+            try:
+                resp = await send_schedule_reminder(
+                    openid=openid,
+                    title=ev.title,
+                    time_str=ev_dt.strftime("%Y-%m-%d %H:%M"),
+                    note=ev.notes or "",
+                    investor_name=inv_name_by_id.get(ev.investor_id or 0, ""),
+                    location=ev.location or "",
+                    page=f"pages/calendar-day/index?date={ev.event_date.isoformat()}",
+                )
+            except Exception:
+                logger.exception("schedule reminder send failed event=%s", ev.id)
+                summary["failed"] += 1
+                continue
+            code = resp.get("errcode")
+            if code == 0:
+                ev.reminded_at = now
+                quota.times = (quota.times or 0) - 1
+                summary["sent"] += 1
+            elif code == 43101:
+                # 用户侧没有可用订阅（从未点过「允许」/拒收/已用完）——本地配额作废，避免反复打无效请求
+                quota.times = 0
+                summary["wx_43101"] += 1
+            else:
+                logger.warning("schedule reminder errcode=%s errmsg=%s event=%s",
+                               code, resp.get("errmsg"), ev.id)
+                summary["failed"] += 1
+        await db.commit()
+
+    logger.info("schedule reminders done: %s", summary)
+    return summary

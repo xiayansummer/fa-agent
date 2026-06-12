@@ -8,6 +8,7 @@ from models.agent_feedback import AgentFeedback
 from models.calendar_dismissals import CalendarDismissal
 from models.ir_investor_membership import IrInvestorMembership
 from models.calendar_events import CalendarEventRow
+from models.wx_sub_quota import WxSubQuota
 
 __all__ = [
     "Investor",
@@ -19,4 +20,5 @@ __all__ = [
     "CalendarDismissal",
     "IrInvestorMembership",
     "CalendarEventRow",
+    "WxSubQuota",
 ]

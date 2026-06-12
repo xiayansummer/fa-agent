@@ -140,6 +140,36 @@ async def test_tencent_token(
     )
 
 
+class SubscribeReport(BaseModel):
+    template_id: Optional[str] = None  # 不传默认日程提醒模板
+
+
+@router.post("/subscribe")
+async def report_subscribe_grant(
+    body: SubscribeReport,
+    db: AsyncSession = Depends(get_db),
+    current_ir: dict = Depends(get_current_ir),
+):
+    """前端 wx.requestSubscribeMessage 用户「允许」后上报——本地配额 +1。
+    一次性订阅消息平台规则：一次授权 = 一条发送配额。"""
+    from config import settings as _s
+    from models.wx_sub_quota import WxSubQuota
+    tmpl = (body.template_id or "").strip() or _s.wx_schedule_tmpl_id
+    row = (await db.execute(
+        select(WxSubQuota).where(
+            WxSubQuota.ir_id == current_ir["ir_id"],
+            WxSubQuota.template_id == tmpl,
+        )
+    )).scalar_one_or_none()
+    if row is None:
+        row = WxSubQuota(ir_id=current_ir["ir_id"], template_id=tmpl, times=1)
+        db.add(row)
+    else:
+        row.times = (row.times or 0) + 1
+    await db.commit()
+    return {"ok": True, "times": row.times}
+
+
 class MeetingRecordCheck(BaseModel):
     meeting_id: str
     has_recording: bool

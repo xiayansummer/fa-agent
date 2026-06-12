@@ -1,5 +1,6 @@
 import { api } from '../../services/api';
 import { formatDate } from '../../utils/time';
+import { bankScheduleSubscribe } from '../../utils/subscribe';
 
 interface PageData {
   eventId: number;        // 0 = 新建
@@ -67,6 +68,8 @@ Page<PageData, {}>({
       wx.showToast({ title: '标题必填', icon: 'none' });
       return;
     }
+    // 在保存手势里攒一条提醒配额（勾过"总是保持"后无感）
+    bankScheduleSubscribe();
     this.setData({ saving: true });
     const payload: any = {
       title: this.data.title.trim(),

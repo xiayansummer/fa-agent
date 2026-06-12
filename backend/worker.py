@@ -40,6 +40,10 @@ celery_app.conf.task_routes = {
 }
 
 celery_app.conf.beat_schedule = {
+    "schedule-reminders-5min": {
+        "task": "worker.trigger_schedule_reminders",
+        "schedule": 300.0,  # 每 5 分钟；任务内部用 Asia/Shanghai 算时间，不受容器 UTC 影响
+    },
     "daily-push-9am": {
         "task": "worker.trigger_daily_push",
         "schedule": crontab(hour=9, minute=0),
@@ -85,6 +89,23 @@ def dispatch_outreach(self, ir_id: int, investor_ids: list,
         ))
     except Exception as exc:
         raise self.retry(exc=exc, countdown=120)
+
+
+@celery_app.task(name="worker.trigger_schedule_reminders", bind=True)
+def trigger_schedule_reminders(self):
+    """日程订阅消息提醒：30 分钟窗口内开始的 calendar_events → 微信服务通知。"""
+    import asyncio, os, sys
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+    from agent.scheduled import run_schedule_reminders
+    try:
+        return asyncio.run(run_schedule_reminders())
+    except Exception as exc:
+        # 提醒任务高频跑，失败不重试（下个 5 分钟自然再试），只记日志
+        import logging
+        logging.getLogger(__name__).exception("schedule reminders tick failed")
+        return {"error": str(exc)}
 
 
 @celery_app.task(name="worker.trigger_milestone_outreach", bind=True)

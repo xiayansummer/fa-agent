@@ -25,5 +25,6 @@ class CalendarEventRow(Base):
     location     = Column(String(200), nullable=True)
     notes        = Column(Text, nullable=True)
     source       = Column(String(16), nullable=False, server_default="manual")
+    reminded_at  = Column(DateTime, nullable=True)   # 订阅消息提醒已发送时间（去重标记）
     created_at   = Column(DateTime, server_default=func.now())
     updated_at   = Column(DateTime, server_default=func.now(), onupdate=func.now())
