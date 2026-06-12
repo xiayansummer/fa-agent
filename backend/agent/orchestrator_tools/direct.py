@@ -1117,6 +1117,20 @@ async def _add_calendar_event(args: dict, ctx: ToolCtx) -> dict:
     except ValueError:
         return {"error": f"date 格式无效（应为 YYYY-MM-DD）：{date_str}"}
 
+    # 年份幻觉防御：LLM（minimax 训练截止于 2025 前）会把"6/16"解析成 2025-06-16
+    # 写进库（2026-06-12 实锤）。对话里"加日程"语义都是未来安排——过去日期一律拒收，
+    # 报错里直接给出正确候选年份，让模型自行重调。
+    today = _date.today()
+    if ev_date < today:
+        suggested = ev_date.replace(year=today.year)
+        if suggested < today:
+            suggested = ev_date.replace(year=today.year + 1)
+        return {"error": (
+            f"date={date_str} 是过去的日期（今天是 {today.isoformat()}），没有写入。"
+            f"IR 说的「{ev_date.month}/{ev_date.day}」按当前年份应为 {suggested.isoformat()}，"
+            "请用正确年份重新调用；如果 IR 确实要补记过去的日程，请先向 IR 确认。"
+        )}
+
     def _norm_time(v):
         v = (v or "").strip()
         if not v:
