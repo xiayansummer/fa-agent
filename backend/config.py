@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ai_base_url: str = "https://opencode.ai/zen/go/v1"
     ai_model: str = "minimax-m2.7"
     # 名片/图片需要视觉能力，minimax 不支持，单独用多模态模型（同 opencode 端点+key）
-    vision_model: str = "qwen3.6-plus"
+    vision_model: str = "qwen3.7-plus"
 
     # ASR：DashScope Qwen3-ASR-Flash via OpenAI-compatible /audio/transcriptions
     asr_api_key: str = ""
