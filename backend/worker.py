@@ -42,9 +42,12 @@ celery_app.conf.task_routes = {
 }
 
 celery_app.conf.beat_schedule = {
-    "schedule-reminders-5min": {
+    "schedule-reminders-1min": {
         "task": "worker.trigger_schedule_reminders",
-        "schedule": 300.0,  # 每 5 分钟；任务内部用 Asia/Shanghai 算时间，不受容器 UTC 影响
+        # 每 1 分钟：5 分钟粒度会让"提前5分钟"档最坏贴着开始时间才送达
+        # （12:45 该提，12:44 tick 差 1 分钟不发、12:49 才发）。任务空跑仅一次
+        # DB 查询 ~0.6s，1 分钟无压力。内部用 Asia/Shanghai 算时间，不受容器 UTC 影响。
+        "schedule": 60.0,
     },
     "daily-push-9am": {
         "task": "worker.trigger_daily_push",

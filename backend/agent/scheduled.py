@@ -237,7 +237,8 @@ async def run_schedule_reminders() -> dict:
                 summary["failed"] += 1
         await db.commit()
 
-    logger.info("schedule reminders done: %s", summary)
+    if any(summary.values()):  # 1 分钟一跑，空轮不刷日志
+        logger.info("schedule reminders done: %s", summary)
     return summary
 
 
