@@ -287,8 +287,8 @@ Page<PageData, {}>({
     const pending = this.data.pendingFile;
     if (!text && !pending) return;
     // 发送是用户手势：顺带攒日程提醒配额（Agent 对话建日程没有别的手势点；
-    // 勾过"总是保持以上选择"后这里完全无感）
-    bankScheduleSubscribe();
+    // 勾过"总是保持以上选择"后这里完全无感）。await 防后续 UI 操作杀弹窗。
+    await bankScheduleSubscribe();
     this.setData({ input: '', pendingFile: null });
 
     // pendingFile 存在时：图片走缩略图，文档走 chip 文本

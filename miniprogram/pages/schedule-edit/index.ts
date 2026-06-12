@@ -68,8 +68,9 @@ Page<PageData, {}>({
       wx.showToast({ title: '标题必填', icon: 'none' });
       return;
     }
-    // 在保存手势里攒一条提醒配额（勾过"总是保持"后无感）
-    bankScheduleSubscribe();
+    // 在保存手势里攒一条提醒配额。必须 await：弹窗期间停住保存流程，
+    // 否则保存成功后的 navigateBack 会把授权弹窗杀掉（一闪而过点不到）。
+    await bankScheduleSubscribe();
     this.setData({ saving: true });
     const payload: any = {
       title: this.data.title.trim(),
