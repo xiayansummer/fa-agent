@@ -1163,15 +1163,19 @@ async def _add_calendar_event(args: dict, ctx: ToolCtx) -> dict:
     ctx.db.add(row)
     await ctx.db.commit()
     await ctx.db.refresh(row)
+    _wd = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][ev_date.weekday()]
     return {
         "ok": True,
         "event_id": row.id,
         "title": title,
         "date": date_str,
+        "weekday": _wd,
+        "date_display": f"{date_str}（{_wd}）",
         "start_time": start_time or "全天",
         "investor_name": inv_name,
         "remind": ("不提醒" if (ahead is not None and ahead < 0)
                    else f"提前{ahead}分钟" if ahead else "默认提前30分钟（有时间的日程）"),
+        "note": "回报 IR 时日期/星期请直接引用 date_display，不要自己推算星期。",
     }
 
 
