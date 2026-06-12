@@ -64,9 +64,9 @@ def trigger_daily_push(self):
     _here = os.path.dirname(os.path.abspath(__file__))
     if _here not in sys.path:
         sys.path.insert(0, _here)
-    from agent.scheduled import run_daily_push_for_all_irs
+    from agent.scheduled import run_daily_push_for_all_irs, run_with_cleanup
     try:
-        return asyncio.run(run_daily_push_for_all_irs())
+        return asyncio.run(run_with_cleanup(run_daily_push_for_all_irs))
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300, max_retries=3)
 
@@ -82,8 +82,9 @@ def dispatch_outreach(self, ir_id: int, investor_ids: list,
     if _here not in sys.path:
         sys.path.insert(0, _here)
     from agent.dispatch_outreach import dispatch_outreach_impl
+    from agent.scheduled import run_with_cleanup
     try:
-        return asyncio.run(dispatch_outreach_impl(
+        return asyncio.run(run_with_cleanup(dispatch_outreach_impl,
             ir_id=int(ir_id),
             investor_ids=list(investor_ids or []),
             action_items=list(action_items or []),
@@ -100,9 +101,9 @@ def trigger_schedule_reminders(self):
     _here = os.path.dirname(os.path.abspath(__file__))
     if _here not in sys.path:
         sys.path.insert(0, _here)
-    from agent.scheduled import run_schedule_reminders
+    from agent.scheduled import run_schedule_reminders, run_with_cleanup
     try:
-        return asyncio.run(run_schedule_reminders())
+        return asyncio.run(run_with_cleanup(run_schedule_reminders))
     except Exception as exc:
         # 提醒任务高频跑，失败不重试（下个 5 分钟自然再试），只记日志
         import logging
@@ -117,8 +118,8 @@ def trigger_milestone_outreach(self):
     _here = os.path.dirname(os.path.abspath(__file__))
     if _here not in sys.path:
         sys.path.insert(0, _here)
-    from agent.scheduled import run_milestone_outreach_for_all_irs
+    from agent.scheduled import run_milestone_outreach_for_all_irs, run_with_cleanup
     try:
-        return asyncio.run(run_milestone_outreach_for_all_irs())
+        return asyncio.run(run_with_cleanup(run_milestone_outreach_for_all_irs))
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300, max_retries=3)

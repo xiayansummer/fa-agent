@@ -233,3 +233,33 @@ async def run_schedule_reminders() -> dict:
 
     logger.info("schedule reminders done: %s", summary)
     return summary
+
+
+async def _dispose_async_singletons() -> None:
+    """celery prefork 子进程里每次任务都是一次全新的 asyncio.run() loop——
+    模块级单例（SQLAlchemy 连接池 / redis 客户端）里的连接还绑着上一个 loop，
+    下次任务复用就炸 "got Future attached to a different loop"
+    （2026-06-12 提醒任务成功/失败交替的根因）。
+    每次任务收尾把 loop 绑定资源全部关掉/重置，下个 loop 重建，连接成本可忽略。"""
+    import asyncio as _asyncio
+    from database import engine
+    try:
+        await engine.dispose()
+    except Exception:
+        logger.warning("scheduled cleanup: engine.dispose failed", exc_info=True)
+    import redis_client
+    try:
+        if redis_client._redis is not None:
+            await redis_client._redis.aclose()
+    except Exception:
+        pass
+    redis_client._redis = None
+    redis_client._lock = _asyncio.Lock()  # asyncio.Lock 首次 await 后也会绑 loop
+
+
+async def run_with_cleanup(fn, *args, **kwargs):
+    """worker 任务统一入口：跑完（无论成败）清理 loop 绑定单例。"""
+    try:
+        return await fn(*args, **kwargs)
+    finally:
+        await _dispose_async_singletons()
