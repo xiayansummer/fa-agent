@@ -181,10 +181,17 @@ async def _prepare_briefing(args: dict, ctx: ToolCtx) -> dict:
         return {"error": "attendee 不能为空"}
 
     db = ctx.db
+    # 只在「我的库」里搜，否则会前简报会吐出别人库里同名投资人的画像+互动
+    # （2026-06-13 泄漏修复，与日历/早安卡同口径）
+    from api.calendar import _my_investor_ids
+    my_ids = await _my_investor_ids(db, ctx.ir_id)
+    if not my_ids:
+        return {"error": f"你的投资人库里没有匹配「{attendee}」的人，无法准备简报"}
     like = f"%{attendee}%"
     rows = (await db.execute(
         select(Investor).where(
             Investor.is_active == True,
+            Investor.id.in_(my_ids),
             or_(Investor.agency.like(like), Investor.name.like(like)),
         ).limit(20)
     )).scalars().all()

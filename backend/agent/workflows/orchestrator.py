@@ -21,8 +21,8 @@ from harness.prompt_registry import registry as prompt_registry
 from models.investors import Investor
 from models.outreach_records import OutreachRecord
 from models.ir_users import IRUser
-# 复用 calendar 端点已有的聚合逻辑
-from api.calendar import _compute_events_for_day, _load_tencent_meetings
+# 复用 calendar 端点已有的聚合逻辑 + 同一份「我的库」口径（单一来源，避免各处重复）
+from api.calendar import _compute_events_for_day, _load_tencent_meetings, _my_investor_ids
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,17 @@ async def fetch_signals_node(state: AgentState) -> dict:
     target_str = str(target)
 
     async with AsyncSessionLocal() as db:
-        # 1) 投资人 + 今日日历事件
-        investors_result = await db.execute(select(Investor).where(Investor.is_active == True))
-        investors = investors_result.scalars().all()
+        # 1) 投资人 + 今日日历事件 —— 只算「我的库」的人，否则早安卡会冒出别人
+        #    库里投资人的"跟进X/X生日"（2026-06-13 泄漏修复，与日历 API 同口径）
+        my_ids = await _my_investor_ids(db, ir_id)
+        investors = []
+        if my_ids:
+            investors = (await db.execute(
+                select(Investor).where(
+                    Investor.is_active == True,
+                    Investor.id.in_(my_ids),
+                )
+            )).scalars().all()
         events = _compute_events_for_day(investors, target)
 
         # 2) 腾讯会议（_load_tencent_meetings 内部有 5min Redis 缓存）
@@ -55,7 +63,8 @@ async def fetch_signals_node(state: AgentState) -> dict:
         )
         pending = pending_result.scalar() or 0
 
-        # 4) 最近 24h 新增投资人（团队新动向）
+        # 4) 最近 24h 新增投资人（团队新动向）—— 故意全公司可见（"团队"动态），
+        #    不按 my_ids 过滤；这是 design 不是泄漏，勿改。
         cutoff = datetime.now() - timedelta(days=1)
         recent_result = await db.execute(
             select(Investor.name, Investor.agency).where(
