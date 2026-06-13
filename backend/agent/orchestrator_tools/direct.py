@@ -11,6 +11,7 @@ from models.ir_users import IRUser
 from models.investors import Investor
 from models.interaction_logs import InteractionLog
 from models.calendar_events import CalendarEventRow
+from models.ir_investor_membership import IrInvestorMembership
 from services import crypto_service
 from services.tencent_meeting import TencentMeetingClient, TencentAuthError, TencentToolError
 import httpx as _httpx
@@ -402,6 +403,30 @@ async def _resolve_investor(ctx: ToolCtx, investor_id: int) -> Optional[Investor
     return res.scalar_one_or_none()
 
 
+async def _ensure_membership(ctx: ToolCtx, investor_id: int) -> None:
+    """IR 通过工具对某投资人建档/操作 = 该投资人进「我的库」。
+    投资人实体是全公司共享，但列表/详情按 ir_investor_membership 过滤——
+    所以任何建立 IR↔投资人 关系的写工具都必须回写归属表，否则
+    人建进库了却在列表里看不到（2026-06-13 bind_business_card 实锤：
+    程瑞 id=34 写进 investors 但 membership 为空，投资人 Tab 看不到）。
+    幂等：(ir_id, investor_id) 是主键，已存在则忽略。"""
+    if not investor_id:
+        return
+    exists = (await ctx.db.execute(
+        select(IrInvestorMembership).where(
+            IrInvestorMembership.ir_id == ctx.ir_id,
+            IrInvestorMembership.investor_id == investor_id,
+        )
+    )).scalar_one_or_none()
+    if exists:
+        return
+    ctx.db.add(IrInvestorMembership(ir_id=ctx.ir_id, investor_id=investor_id))
+    try:
+        await ctx.db.commit()
+    except Exception:
+        await ctx.db.rollback()  # 并发下唯一冲突 = 已存在，视为成功
+
+
 # ============ tool implementations ============
 
 async def _schedule_meeting(args: dict, ctx: ToolCtx) -> dict:
@@ -604,6 +629,7 @@ async def _set_familiarity(args: dict, ctx: ToolCtx) -> dict:
 
     inv.familiarity = level
     await ctx.db.commit()
+    await _ensure_membership(ctx, inv_id)
     result = {"ok": True, "investor_id": inv_id, "name": inv.name, "level": level,
               "qmingpian_synced": qmingpian_synced}
     if qmingpian_warning:
@@ -628,6 +654,7 @@ async def _set_tags(args: dict, ctx: ToolCtx) -> dict:
         await qmingpian_update_person_tags(name=inv.name, agency=inv.agency or "", tags=cleaned)
     except Exception as e:
         return {"error": f"企名片同步失败：{e}"}
+    await _ensure_membership(ctx, inv_id)
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "tags": cleaned}
 
 
@@ -649,6 +676,7 @@ async def _add_summary(args: dict, ctx: ToolCtx) -> dict:
         )
     except Exception as e:
         return {"error": f"企名片写入纪要失败：{e}"}
+    await _ensure_membership(ctx, inv_id)
     return {"ok": True, "investor_id": inv_id, "name": inv.name, "summary_preview": summary[:60]}
 
 
@@ -863,6 +891,7 @@ async def _bind_business_card(args: dict, ctx: ToolCtx) -> dict:
             return {"error": f"企名片绑定名片失败：{e}",
                     "investor_id": inv.id, "created_local": created_local}
 
+    await _ensure_membership(ctx, inv.id)
     return {
         "ok": True,
         "investor_id": inv.id,
@@ -903,6 +932,7 @@ async def _add_person_card(args: dict, ctx: ToolCtx) -> dict:
         )
     except Exception as e:
         return {"error": f"企名片绑定名片失败：{e}"}
+    await _ensure_membership(ctx, inv_id)
     return {"ok": True, "investor_id": inv_id, "name": inv.name}
 
 
@@ -1103,6 +1133,7 @@ async def _record_interaction(args: dict, ctx: ToolCtx) -> dict:
         inv.last_interaction_at = occ_dt
     await ctx.db.commit()
     await ctx.db.refresh(log)
+    await _ensure_membership(ctx, inv_id)
     return {"ok": True, "interaction_id": log.id, "investor_id": inv_id, "name": inv.name, "type": itype}
 
 
